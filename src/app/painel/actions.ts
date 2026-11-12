@@ -4,11 +4,13 @@
 // e filtram por ele. Nunca usar um storeId vindo do formulário.
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { OrderStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireStoreUser } from "@/lib/auth";
 import { parseBRLToCents } from "@/lib/money";
+import { cancelStoreSubscription, subscribeStore } from "@/lib/billing";
 
 const ORDER_STATUSES: OrderStatus[] = [
   "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED", "CANCELED",
@@ -131,4 +133,22 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
   });
   revalidatePath("/painel", "layout");
   return { ok: true };
+}
+
+export type BillingState = { error?: string; ok?: boolean } | undefined;
+
+export async function subscribe(_: BillingState, formData: FormData): Promise<BillingState> {
+  const { storeId } = await requireStoreUser();
+  const result = await subscribeStore(storeId, String(formData.get("planCode") ?? ""), String(formData.get("cpfCnpj") ?? ""));
+  if (!result.ok) return { error: result.error };
+  revalidatePath("/painel", "layout");
+  if (result.invoiceUrl) redirect(result.invoiceUrl);
+  return { ok: true };
+}
+
+export async function cancelSubscription(_: BillingState, _formData: FormData): Promise<BillingState> {
+  const { storeId } = await requireStoreUser();
+  const result = await cancelStoreSubscription(storeId);
+  revalidatePath("/painel", "layout");
+  return result.ok ? { ok: true } : { error: result.error };
 }

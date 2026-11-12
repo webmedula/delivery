@@ -11,7 +11,8 @@ async function main() {
   ];
   for (const p of plans) await db.plan.upsert({ where: { code: p.code }, update: p, create: p });
 
-  // Loja de demonstração: demo@pedidolocal.dev / demo1234
+  // Loja de demonstração (demo@pedidolocal.dev / demo1234): só fora de produção.
+  if (process.env.NODE_ENV === "production") return;
   if (await db.store.findUnique({ where: { slug: "lanchonete-demo" } })) return;
   const plan = await db.plan.findUniqueOrThrow({ where: { code: "profissional" } });
   const store = await db.store.create({

@@ -77,7 +77,9 @@ model Store {
   subscriptionStatus SubscriptionStatus @default(TRIALING)
   trialEndsAt        DateTime?
   currentPeriodEnd   DateTime?
-  billingCustomerId  String?            // id do cliente no gateway (Asaas/Mercado Pago/Stripe)
+  cpfCnpj               String?         // só dígitos; exigido pelo Asaas para cobrar
+  billingCustomerId     String?         // id do cliente no Asaas (cus_...)
+  billingSubscriptionId String? @unique // id da assinatura no Asaas (sub_...)
 
   users              User[]
   categories         Category[]
@@ -163,4 +165,12 @@ model OrderItem {
   unitPriceCents Int     // cópia do preço no momento do pedido
   quantity       Int
   notes          String?
+}
+
+// Eventos de webhook já processados (o Asaas pode reenviar o mesmo evento).
+model BillingEvent {
+  id         String   @id // id do evento enviado pelo Asaas (evt_...)
+  type       String
+  storeId    String?
+  receivedAt DateTime @default(now())
 }
