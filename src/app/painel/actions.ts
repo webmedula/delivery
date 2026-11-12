@@ -1,0 +1,134 @@
+"use server";
+
+// Todas as ações do painel pegam o storeId da sessão (requireStoreUser)
+// e filtram por ele. Nunca usar um storeId vindo do formulário.
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import type { OrderStatus } from "@prisma/client";
+import { db } from "@/lib/db";
+import { requireStoreUser } from "@/lib/auth";
+import { parseBRLToCents } from "@/lib/money";
+
+const ORDER_STATUSES: OrderStatus[] = [
+  "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED", "CANCELED",
+];
+
+export async function updateOrderStatus(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const id = String(formData.get("orderId"));
+  const status = String(formData.get("status")) as OrderStatus;
+  if (!ORDER_STATUSES.includes(status)) return;
+  await db.order.updateMany({ where: { id, storeId }, data: { status } });
+  revalidatePath("/painel");
+}
+
+export async function createCategory(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return;
+  const count = await db.category.count({ where: { storeId } });
+  await db.category.create({ data: { storeId, name, position: count } });
+  revalidatePath("/painel/cardapio");
+}
+
+export async function deleteCategory(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.category.deleteMany({ where: { id: String(formData.get("id")), storeId } });
+  revalidatePath("/painel/cardapio");
+}
+
+export type ProductFormState = { error?: string; ok?: boolean } | undefined;
+
+const productSchema = z.object({
+  name: z.string().trim().min(1, "Informe o nome do produto."),
+  description: z.string().trim().max(500).optional(),
+  price: z.string(),
+  categoryId: z.string().optional(),
+  imageUrl: z.string().trim().url("URL da imagem inválida.").optional().or(z.literal("")),
+});
+
+export async function createProduct(_: ProductFormState, formData: FormData): Promise<ProductFormState> {
+  const { storeId, store } = await requireStoreUser();
+  const parsed = productSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const priceCents = parseBRLToCents(parsed.data.price);
+  if (priceCents === null) return { error: "Preço inválido." };
+
+  const total = await db.product.count({ where: { storeId } });
+  if (store.plan.maxProducts > 0 && total >= store.plan.maxProducts)
+    return { error: `Seu plano permite até ${store.plan.maxProducts} produtos. Faça upgrade para cadastrar mais.` };
+
+  let categoryId: string | null = parsed.data.categoryId || null;
+  if (categoryId) {
+    const owns = await db.category.findFirst({ where: { id: categoryId, storeId } });
+    if (!owns) categoryId = null;
+  }
+
+  await db.product.create({
+    data: {
+      storeId,
+      categoryId,
+      name: parsed.data.name,
+      description: parsed.data.description || null,
+      priceCents,
+      imageUrl: parsed.data.imageUrl || null,
+      position: total,
+    },
+  });
+  revalidatePath("/painel/cardapio");
+  return { ok: true };
+}
+
+export async function toggleProduct(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const id = String(formData.get("id"));
+  const product = await db.product.findFirst({ where: { id, storeId } });
+  if (!product) return;
+  await db.product.update({ where: { id }, data: { available: !product.available } });
+  revalidatePath("/painel/cardapio");
+}
+
+export async function deleteProduct(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.product.deleteMany({ where: { id: String(formData.get("id")), storeId } });
+  revalidatePath("/painel/cardapio");
+}
+
+export type SettingsState = { error?: string; ok?: boolean } | undefined;
+
+export async function updateStoreSettings(_: SettingsState, formData: FormData): Promise<SettingsState> {
+  const { storeId } = await requireStoreUser();
+  const get = (k: string) => String(formData.get(k) ?? "").trim();
+
+  const name = get("name");
+  if (name.length < 2) return { error: "Informe o nome da loja." };
+  const deliveryFeeCents = parseBRLToCents(get("deliveryFee") || "0");
+  const minOrderCents = parseBRLToCents(get("minOrder") || "0");
+  if (deliveryFeeCents === null || minOrderCents === null) return { error: "Valor inválido." };
+  const whatsapp = get("whatsapp").replace(/\D/g, "");
+  if (whatsapp && (whatsapp.length < 12 || whatsapp.length > 13))
+    return { error: "WhatsApp deve ter DDI + DDD + número, ex.: 5511999999999." };
+
+  const acceptsDelivery = formData.get("acceptsDelivery") === "on";
+  const acceptsPickup = formData.get("acceptsPickup") === "on";
+  if (!acceptsDelivery && !acceptsPickup) return { error: "Ative entrega, retirada ou os dois." };
+
+  await db.store.update({
+    where: { id: storeId },
+    data: {
+      name,
+      description: get("description") || null,
+      whatsapp: whatsapp || null,
+      address: get("address") || null,
+      pixKey: get("pixKey") || null,
+      deliveryFeeCents,
+      minOrderCents,
+      acceptsDelivery,
+      acceptsPickup,
+      isOpen: formData.get("isOpen") === "on",
+    },
+  });
+  revalidatePath("/painel", "layout");
+  return { ok: true };
+}

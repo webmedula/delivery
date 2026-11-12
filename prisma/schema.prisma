@@ -1,0 +1,166 @@
+// Banco multi-tenant: cada loja (Store) é um tenant.
+// Toda tabela de dados da loja carrega storeId, e o código do painel
+// só consulta através de helpers que filtram pelo storeId da sessão.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  STAFF
+  SUPERADMIN
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum OrderStatus {
+  PENDING    // recebido
+  CONFIRMED  // aceito pela loja
+  PREPARING
+  OUT_FOR_DELIVERY
+  READY_FOR_PICKUP
+  COMPLETED
+  CANCELED
+}
+
+enum FulfillmentType {
+  DELIVERY
+  PICKUP
+}
+
+enum PaymentMethod {
+  PIX
+  CASH
+  CARD_ON_DELIVERY
+}
+
+model Plan {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  name             String
+  priceCents       Int
+  maxProducts      Int      // limite de produtos no cardápio (0 = ilimitado)
+  maxOrdersMonth   Int      // limite de pedidos/mês (0 = ilimitado)
+  active           Boolean  @default(true)
+  stores           Store[]
+  createdAt        DateTime @default(now())
+}
+
+model Store {
+  id                 String             @id @default(cuid())
+  slug               String             @unique
+  name               String
+  description        String?
+  whatsapp           String?            // só dígitos, com DDI: 5511999999999
+  address            String?
+  logoUrl            String?
+  isOpen             Boolean            @default(true)
+  deliveryFeeCents   Int                @default(0)
+  minOrderCents      Int                @default(0)
+  acceptsDelivery    Boolean            @default(true)
+  acceptsPickup      Boolean            @default(true)
+  pixKey             String?
+
+  planId             String
+  plan               Plan               @relation(fields: [planId], references: [id])
+  subscriptionStatus SubscriptionStatus @default(TRIALING)
+  trialEndsAt        DateTime?
+  currentPeriodEnd   DateTime?
+  billingCustomerId  String?            // id do cliente no gateway (Asaas/Mercado Pago/Stripe)
+
+  users              User[]
+  categories         Category[]
+  products           Product[]
+  orders             Order[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(OWNER)
+  storeId      String?
+  store        Store?   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@index([storeId])
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  position  Int       @default(0)
+  products  Product[]
+
+  @@index([storeId])
+}
+
+model Product {
+  id          String      @id @default(cuid())
+  storeId     String
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name        String
+  description String?
+  priceCents  Int
+  imageUrl    String?
+  available   Boolean     @default(true)
+  position    Int         @default(0)
+  orderItems  OrderItem[]
+  createdAt   DateTime    @default(now())
+
+  @@index([storeId])
+}
+
+model Order {
+  id               String          @id @default(cuid())
+  storeId          String
+  store            Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  number           Int             // sequencial por loja, mostrado ao cliente
+  status           OrderStatus     @default(PENDING)
+  fulfillment      FulfillmentType
+  paymentMethod    PaymentMethod
+  changeForCents   Int?            // troco para (dinheiro)
+  customerName     String
+  customerPhone    String
+  address          String?
+  notes            String?
+  subtotalCents    Int
+  deliveryFeeCents Int
+  totalCents       Int
+  items            OrderItem[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([storeId, number])
+  @@index([storeId, createdAt])
+}
+
+model OrderItem {
+  id             String  @id @default(cuid())
+  orderId        String
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  name           String  // cópia do nome no momento do pedido
+  unitPriceCents Int     // cópia do preço no momento do pedido
+  quantity       Int
+  notes          String?
+}
