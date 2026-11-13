@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pedido Local",
+  title: "WebTenda",
   description: "Cardápio digital e pedidos para pequenos negócios, sem comissão por pedido.",
 };
 

@@ -1,4 +1,4 @@
-# Pedido Local (nome provisório)
+# WebTenda
 
 SaaS de cardápio digital e pedidos para pequenos negócios locais, cobrado por assinatura mensal (sem comissão por pedido).
 
@@ -33,7 +33,7 @@ npm run dev
 ```
 
 - Cardápio demo: http://localhost:3000/loja/lanchonete-demo
-- Painel demo: http://localhost:3000/entrar · `demo@pedidolocal.dev` / `demo1234`
+- Painel demo: http://localhost:3000/entrar · `demo@webtenda.com.br` / `demo1234`
 
 ## Testes
 

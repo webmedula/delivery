@@ -10,7 +10,7 @@ export default async function Home() {
   return (
     <main>
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-5">
-        <span className="text-lg font-bold text-brand-700">Pedido Local</span>
+        <span className="text-lg font-bold text-brand-700">WebTenda</span>
         <nav className="flex gap-2">
           <Link href="/entrar" className="btn-ghost">Entrar</Link>
           <Link href="/cadastro" className="btn">Criar minha loja</Link>

@@ -26,7 +26,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: {
       access_token: apiKey,
       "Content-Type": "application/json",
-      "User-Agent": "delivery-saas",
+      "User-Agent": "webtenda",
     },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",

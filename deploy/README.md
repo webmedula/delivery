@@ -32,7 +32,7 @@ A loja de demonstração não é criada em produção; cadastre a sua em `/cadas
 
 ## 3. Domínio e HTTPS no CyberPanel
 
-1. **Websites > Create Website**: crie o site com o domínio (ex.: `app.seudominio.com.br`). PHP pode ser qualquer versão; não será usado.
+1. **Websites > Create Website**: crie o site com o domínio `webtenda.com.br`. PHP pode ser qualquer versão; não será usado.
 2. **Websites > List Websites > Manage > SSL > Issue SSL** para gerar o certificado.
 3. **Manage > vHost Conf**: adicione no final do arquivo e salve:
 
@@ -55,15 +55,19 @@ context / {
 ```
 
 4. Reinicie o servidor web: `systemctl restart lsws`
-5. Abra `https://app.seudominio.com.br`.
+5. Abra `https://webtenda.com.br`.
 
 Se o site já tiver um bloco `context /` no vHost Conf, substitua-o por este.
+
+**Atenção:** depois disso o domínio inteiro passa a ser atendido pelo sistema. Se já existe um
+site em `webtenda.com.br` que você quer manter, crie o sistema em um subdomínio
+(ex.: `app.webtenda.com.br`) e use esse endereço também na URL do webhook.
 
 ## 4. Asaas
 
 1. Crie a conta em https://sandbox.asaas.com (teste) e gere a chave em **Integrações > Chaves de API**.
 2. Em **Integrações > Webhooks**, crie um webhook:
-   - URL: `https://app.seudominio.com.br/api/billing/webhook`
+   - URL: `https://webtenda.com.br/api/billing/webhook`
    - Token de autenticação: o mesmo valor de `ASAAS_WEBHOOK_TOKEN`
    - Eventos: todos de **Cobranças** e de **Assinaturas**
 3. Coloque a chave em `ASAAS_API_KEY` (entre aspas simples) e reinicie: `./deploy/update.sh`
