@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { requireAdmin } from "@/lib/auth";
 import { logout } from "@/app/(auth)/actions";
 
@@ -16,7 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="min-h-screen">
       <header className="border-b border-stone-200 bg-stone-900 text-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
-          <span className="font-bold">WebTenda · Administração</span>
+          <span className="flex items-center gap-2 font-bold"><Logo className="h-7 w-auto text-white" /><span className="text-stone-400">·</span> Administração</span>
           <nav className="flex flex-wrap gap-1 text-sm">
             {nav.map((n) => (
               <Link key={n.href} href={n.href} className="rounded-md px-3 py-1.5 text-stone-200 hover:bg-stone-700">{n.label}</Link>
