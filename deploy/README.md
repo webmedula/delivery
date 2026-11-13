@@ -16,6 +16,7 @@ Há dois caminhos: **Easypanel** (mais simples, logo abaixo) ou **CyberPanel com
      ASAAS_API_KEY=<chave do Asaas SEM o "$" inicial, começando em aact_>
      ASAAS_BASE_URL=https://api-sandbox.asaas.com/v3
      ASAAS_WEBHOOK_TOKEN=<texto aleatório que você inventa>
+     ADMIN_EMAILS=<seu e-mail de login; mais de um, separe por vírgula>
      ```
    - **Domains:** adicione `app.webtenda.com.br`, porta `3000`. O DNS (registro A de `app`) precisa apontar para o IP do VPS.
    - **Se o CyberPanel está no mesmo VPS** e já ocupa as portas 80/443: em vez de usar o domínio do Easypanel,
@@ -133,3 +134,14 @@ cd /opt/delivery
 docker compose --env-file .env.production -f docker-compose.prod.yml logs -f app   # ver logs
 docker compose --env-file .env.production -f docker-compose.prod.yml restart app   # reiniciar
 ```
+
+## Área de administração
+
+`https://app.webtenda.com.br/admin` mostra todas as lojas, usuários e assinaturas, e só abre
+para os e-mails listados em `ADMIN_EMAILS`.
+
+1. **Primeiro** crie a sua conta em `/cadastro` com o e-mail que vai ser administrador.
+2. **Depois** coloque esse e-mail em `ADMIN_EMAILS` e refaça o deploy.
+
+Faça nessa ordem: o cadastro não confirma e-mail, então quem se cadastrar com um e-mail
+que já está em `ADMIN_EMAILS` vira administrador.

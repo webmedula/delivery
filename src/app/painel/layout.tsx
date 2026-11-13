@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { requireStoreUser } from "@/lib/auth";
+import { isAdminEmail, requireStoreUser } from "@/lib/auth";
+import { leaveSupport } from "@/app/admin/actions";
 import { canTakeOrders, trialDaysLeft } from "@/lib/subscription";
 import { logout } from "@/app/(auth)/actions";
 
@@ -11,12 +12,18 @@ const nav = [
 ];
 
 export default async function PainelLayout({ children }: { children: React.ReactNode }) {
-  const { store } = await requireStoreUser();
+  const { store, user, support } = await requireStoreUser();
   const active = canTakeOrders(store);
   const days = trialDaysLeft(store);
 
   return (
     <div className="min-h-screen">
+      {support && (
+        <form action={leaveSupport} className="bg-stone-900 px-4 py-2 text-center text-sm text-white">
+          Modo suporte: você está vendo o painel de <strong>{store.name}</strong> como administrador.{" "}
+          <button className="underline">Sair do modo suporte</button>
+        </form>
+      )}
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
           <span className="font-bold text-brand-700">{store.name}</span>
@@ -28,12 +35,17 @@ export default async function PainelLayout({ children }: { children: React.React
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2">
+            {!support && isAdminEmail(user.email) && <Link href="/admin" className="btn-ghost">Administração</Link>}
             <a href={`/loja/${store.slug}`} target="_blank" className="btn-ghost">Ver cardápio</a>
             <form action={logout}><button className="btn-ghost">Sair</button></form>
           </div>
         </div>
       </header>
-      {!active ? (
+      {store.blockedAt ? (
+        <div className="bg-red-600 px-4 py-2 text-center text-sm text-white">
+          Sua loja foi bloqueada pela administração da WebTenda{store.blockedReason ? `: ${store.blockedReason}` : "."} Fale com o suporte.
+        </div>
+      ) : !active ? (
         <div className="bg-red-600 px-4 py-2 text-center text-sm text-white">
           Sua loja está bloqueada para novos pedidos. <Link href="/painel/assinatura" className="underline">Regularize a assinatura</Link>.
         </div>

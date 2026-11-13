@@ -1,6 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
@@ -53,12 +53,74 @@ export async function getSessionUser() {
   }
 }
 
+/** E-mails com acesso à área /admin, definidos em ADMIN_EMAILS (separados por vírgula). */
+export function isAdminEmail(email: string) {
+  const list = (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(email.toLowerCase());
+}
+
+/** Administrador da plataforma. Quem não é recebe 404, para não revelar que /admin existe. */
+export async function requireAdmin() {
+  const user = await getSessionUser();
+  if (!user) redirect("/entrar");
+  if (!isAdminEmail(user.email)) notFound();
+  return user;
+}
+
+// --- Modo suporte: o administrador abre o painel de uma loja como se fosse o lojista ---
+
+const SUPPORT_COOKIE = "support_store";
+
+export async function startSupportSession(storeId: string) {
+  const token = await new SignJWT({ storeId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("2h")
+    .sign(secret());
+  (await cookies()).set(SUPPORT_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 2 * 60 * 60,
+  });
+}
+
+export async function endSupportSession() {
+  (await cookies()).delete(SUPPORT_COOKIE);
+}
+
+async function supportStoreId(): Promise<string | null> {
+  const token = (await cookies()).get(SUPPORT_COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret());
+    return typeof payload.storeId === "string" ? payload.storeId : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Usuário logado com loja. Todo código do painel passa por aqui e usa
  * o storeId retornado em TODAS as consultas: é o isolamento entre lojas.
+ * Se um administrador está em modo suporte, a loja é a que ele escolheu.
  */
 export async function requireStoreUser() {
   const user = await getSessionUser();
-  if (!user || !user.store) redirect("/entrar");
-  return { user, store: user.store, storeId: user.store.id };
+  if (!user) redirect("/entrar");
+
+  if (isAdminEmail(user.email)) {
+    const id = await supportStoreId();
+    if (id) {
+      const store = await db.store.findUnique({ where: { id }, include: { plan: true } });
+      if (store) return { user, store, storeId: store.id, support: true };
+    }
+  }
+
+  if (!user.store) redirect(isAdminEmail(user.email) ? "/admin" : "/entrar");
+  return { user, store: user.store, storeId: user.store.id, support: false };
 }
