@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { TRIAL_DAYS } from "@/lib/subscription";
@@ -10,7 +11,7 @@ export default async function Home() {
   return (
     <main>
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-5">
-        <span className="text-lg font-bold text-brand-700">WebTenda</span>
+        <Link href="/" aria-label="WebTenda"><Logo className="h-8 w-auto text-stone-900" /></Link>
         <nav className="flex gap-2">
           <Link href="/entrar" className="btn-ghost">Entrar</Link>
           <Link href="/cadastro" className="btn">Criar minha loja</Link>

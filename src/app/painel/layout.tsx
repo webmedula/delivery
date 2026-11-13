@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LogoMark } from "@/components/Logo";
 import { isAdminEmail, requireStoreUser } from "@/lib/auth";
 import { leaveSupport } from "@/app/admin/actions";
 import { canTakeOrders, trialDaysLeft } from "@/lib/subscription";
@@ -26,7 +27,7 @@ export default async function PainelLayout({ children }: { children: React.React
       )}
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
-          <span className="font-bold text-brand-700">{store.name}</span>
+          <span className="flex items-center gap-2 font-bold text-brand-700"><LogoMark className="h-7 w-7" />{store.name}</span>
           <nav className="flex flex-wrap gap-1 text-sm">
             {nav.map((n) => (
               <Link key={n.href} href={n.href} className="rounded-md px-3 py-1.5 text-stone-700 hover:bg-stone-100">
