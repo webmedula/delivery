@@ -1,4 +1,4 @@
-# Pedido Local (nome provisório)
+# WebTenda
 
 SaaS de cardápio digital e pedidos para pequenos negócios locais, cobrado por assinatura mensal (sem comissão por pedido).
 
@@ -13,10 +13,11 @@ SaaS de cardápio digital e pedidos para pequenos negócios locais, cobrado por 
 - **Multi-tenant:** toda tabela tem `storeId`; o painel sempre usa o `storeId` da sessão (`requireStoreUser`), nunca um vindo do formulário.
 - **Planos e assinatura:** limites de produtos e de pedidos/mês por plano; a loja é bloqueada quando o teste vence, com 3 dias de tolerância em atraso (`src/lib/subscription.ts`).
 - O preço do pedido é sempre recalculado no servidor (`src/lib/order-calc.ts`).
+- **Cobrança recorrente pelo Asaas** (Pix, boleto ou cartão): o lojista assina em Painel > Assinatura, paga a fatura do Asaas, e o webhook `/api/billing/webhook` ativa, marca atraso ou cancela a loja (`src/lib/billing.ts`, `src/lib/billing-events.ts`).
+- **Deploy em VPS com CyberPanel** via Docker: veja [deploy/README.md](deploy/README.md).
 
 ## Ainda não feito
 
-- Cobrança recorrente real (Asaas / Mercado Pago / Stripe): ponto de integração em `src/lib/billing.ts`.
 - Pix com QR Code e confirmação automática para os pedidos dos clientes.
 - Adicionais/variações de produto (tamanho, borda, extras), upload de imagens, horários de funcionamento, impressão de pedidos, notificação em tempo real (hoje é polling), área de superadmin, domínio/subdomínio próprio por loja, recuperação de senha.
 
@@ -32,7 +33,7 @@ npm run dev
 ```
 
 - Cardápio demo: http://localhost:3000/loja/lanchonete-demo
-- Painel demo: http://localhost:3000/entrar · `demo@pedidolocal.dev` / `demo1234`
+- Painel demo: http://localhost:3000/entrar · `demo@webtenda.com.br` / `demo1234`
 
 ## Testes
 

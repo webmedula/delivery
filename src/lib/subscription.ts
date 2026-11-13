@@ -22,7 +22,11 @@ export function canTakeOrders(store: StoreBilling, now = new Date()): boolean {
     case "PAST_DUE":
       return !!store.currentPeriodEnd && store.currentPeriodEnd.getTime() + GRACE_DAYS * DAY > now.getTime();
     case "CANCELED":
-      return false;
+      // Cancelou, mas ainda usa o que já pagou (ou o resto do teste).
+      return (
+        (!!store.currentPeriodEnd && store.currentPeriodEnd.getTime() > now.getTime()) ||
+        (!!store.trialEndsAt && store.trialEndsAt.getTime() > now.getTime())
+      );
   }
 }
 

@@ -11,7 +11,8 @@ async function main() {
   ];
   for (const p of plans) await db.plan.upsert({ where: { code: p.code }, update: p, create: p });
 
-  // Loja de demonstração: demo@pedidolocal.dev / demo1234
+  // Loja de demonstração (demo@webtenda.com.br / demo1234): só fora de produção.
+  if (process.env.NODE_ENV === "production") return;
   if (await db.store.findUnique({ where: { slug: "lanchonete-demo" } })) return;
   const plan = await db.plan.findUniqueOrThrow({ where: { code: "profissional" } });
   const store = await db.store.create({
@@ -21,13 +22,13 @@ async function main() {
       description: "Lanches, porções e bebidas.",
       whatsapp: "5511999999999",
       address: "Rua Exemplo, 123 - Centro",
-      pixKey: "demo@pedidolocal.dev",
+      pixKey: "demo@webtenda.com.br",
       deliveryFeeCents: 500,
       minOrderCents: 2000,
       planId: plan.id,
       subscriptionStatus: "TRIALING",
       trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-      users: { create: { name: "Demo", email: "demo@pedidolocal.dev", passwordHash: await bcrypt.hash("demo1234", 10) } },
+      users: { create: { name: "Demo", email: "demo@webtenda.com.br", passwordHash: await bcrypt.hash("demo1234", 10) } },
     },
   });
   const menu: Record<string, [string, string, number][]> = {
