@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { addOneMonth, billingUpdateFor } from "./billing-events";
 import { normalizeCpfCnpj } from "./cpf-cnpj";
+import { normalizeApiKey } from "./asaas";
+
+describe("normalizeApiKey", () => {
+  it("aceita a chave com aspas ou sem o $ inicial", () => {
+    expect(normalizeApiKey("$aact_abc")).toBe("$aact_abc");
+    expect(normalizeApiKey("aact_abc")).toBe("$aact_abc");
+    expect(normalizeApiKey("'$aact_abc'")).toBe("$aact_abc");
+    expect(normalizeApiKey("  ")).toBeNull();
+    expect(normalizeApiKey(undefined)).toBeNull();
+  });
+});
 
 const iso = (d?: Date) => d?.toISOString().slice(0, 10);
 

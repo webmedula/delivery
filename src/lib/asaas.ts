@@ -7,8 +7,18 @@ export class AsaasError extends Error {
   }
 }
 
+/**
+ * A chave do Asaas começa com "$", que vários painéis e arquivos .env interpretam
+ * como variável. Por isso aceitamos a chave entre aspas ou sem o "$" inicial.
+ */
+export function normalizeApiKey(raw: string | undefined): string | null {
+  const key = (raw ?? "").trim().replace(/^['"]|['"]$/g, "");
+  if (!key) return null;
+  return key.startsWith("aact_") ? "$" + key : key;
+}
+
 function config() {
-  const apiKey = process.env.ASAAS_API_KEY;
+  const apiKey = normalizeApiKey(process.env.ASAAS_API_KEY);
   if (!apiKey) throw new AsaasError("ASAAS_API_KEY não configurada.", 0);
   // Sandbox por padrão; em produção use https://api.asaas.com/v3
   const baseUrl = (process.env.ASAAS_BASE_URL || "https://api-sandbox.asaas.com/v3").replace(/\/$/, "");
@@ -16,7 +26,7 @@ function config() {
 }
 
 export function asaasConfigured() {
-  return !!process.env.ASAAS_API_KEY;
+  return !!normalizeApiKey(process.env.ASAAS_API_KEY);
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {

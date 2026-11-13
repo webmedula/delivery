@@ -1,3 +1,28 @@
+# Deploy
+
+Há dois caminhos: **Easypanel** (mais simples, logo abaixo) ou **CyberPanel com Docker Compose** (resto deste arquivo).
+
+## Easypanel
+
+1. **Projeto:** crie um projeto, ex.: `webtenda`.
+2. **Banco:** + Service > Postgres. Nome `db`, imagem `postgres:16`. Depois de criado, copie a **Internal Connection URL** na aba Credentials.
+3. **App:** + Service > App, nome `app`.
+   - **Source:** GitHub, owner `webmedula`, repositório `delivery`, branch `main`, build path `/`.
+   - **Build:** Dockerfile, arquivo `Dockerfile`.
+   - **Environment:**
+     ```
+     DATABASE_URL=<Internal Connection URL do Postgres>
+     AUTH_SECRET=<texto aleatório com 32 caracteres ou mais>
+     ASAAS_API_KEY=<chave do Asaas SEM o "$" inicial, começando em aact_>
+     ASAAS_BASE_URL=https://api-sandbox.asaas.com/v3
+     ASAAS_WEBHOOK_TOKEN=<texto aleatório que você inventa>
+     ```
+   - **Domains:** adicione `webtenda.com.br`, HTTPS ligado, porta `3000`. O DNS do domínio (registro A) precisa apontar para o IP do VPS.
+   - Clique em **Deploy**.
+4. As tabelas e os planos são criados sozinhos quando o app sobe (não precisa rodar migração à mão).
+5. Webhook do Asaas e teste: veja a seção "Asaas" abaixo.
+6. Backup: no serviço Postgres, aba Backups, configure um destino e agendamento diário.
+
 # Deploy no VPS com CyberPanel
 
 O sistema roda em Docker (app + Postgres) na porta local `3010`. O OpenLiteSpeed do
