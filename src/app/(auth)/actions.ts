@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { createSession, destroySession, hashPassword, verifyPassword } from "@/lib/auth";
+import { createSession, destroySession, endSupportSession, hashPassword, verifyPassword } from "@/lib/auth";
 import { RESERVED_SLUGS, slugify } from "@/lib/slug";
 import { TRIAL_DAYS } from "@/lib/subscription";
 
@@ -72,5 +72,6 @@ export async function login(_: FormState, formData: FormData): Promise<FormState
 
 export async function logout() {
   await destroySession();
+  await endSupportSession();
   redirect("/entrar");
 }

@@ -81,6 +81,10 @@ model Store {
   billingCustomerId     String?         // id do cliente no Asaas (cus_...)
   billingSubscriptionId String? @unique // id da assinatura no Asaas (sub_...)
 
+  // Bloqueio manual feito pelo administrador da plataforma (independe da assinatura).
+  blockedAt          DateTime?
+  blockedReason      String?
+
   users              User[]
   categories         Category[]
   products           Product[]
@@ -173,4 +177,16 @@ model BillingEvent {
   type       String
   storeId    String?
   receivedAt DateTime @default(now())
+}
+
+// Registro do que o administrador da plataforma fez (bloqueios, trocas de plano etc.).
+model AdminLog {
+  id         String   @id @default(cuid())
+  adminEmail String
+  action     String
+  storeId    String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([storeId, createdAt])
 }
