@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { requireStoreUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { orderStatusLabel, paymentLabel } from "@/lib/order-status";
 import { updateOrderStatus } from "./actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { formatPhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,16 @@ export default async function OrdersPage() {
     }),
   ]);
 
+  // Quantos pedidos o cliente já fez até este (inclusive), para mostrar "Primeiro pedido" / "5º pedido".
+  const nth = new Map(
+    await Promise.all(
+      open.filter((o) => o.customerId).map(async (o) => [
+        o.id,
+        await db.order.count({ where: { storeId, customerId: o.customerId, createdAt: { lte: o.createdAt }, status: { not: "CANCELED" } } }),
+      ] as const),
+    ),
+  );
+
   return (
     <div className="space-y-6">
       <AutoRefresh seconds={15} />
@@ -46,7 +58,13 @@ export default async function OrdersPage() {
               <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">{orderStatusLabel[o.status]}</span>
             </div>
             <div className="text-sm">
-              <p className="font-medium">{o.customerName} · {o.customerPhone}</p>
+              <p className="font-medium">
+                {o.customerId ? <Link href={`/painel/clientes/${o.customerId}`} className="hover:underline">{o.customerName}</Link> : o.customerName}
+                {" · "}{formatPhone(o.customerPhone)}
+              </p>
+              {nth.has(o.id) && (
+                <p className="text-xs text-stone-500">{nth.get(o.id)! <= 1 ? "Primeiro pedido" : `${nth.get(o.id)}º pedido na loja`}</p>
+              )}
               <p className="text-stone-600">{o.fulfillment === "DELIVERY" ? `Entrega: ${o.address}` : "Retirada no local"}</p>
               <p className="text-stone-600">
                 {paymentLabel[o.paymentMethod]}
@@ -59,6 +77,11 @@ export default async function OrdersPage() {
               ))}
             </ul>
             {o.notes && <p className="text-sm text-stone-600">Obs.: {o.notes}</p>}
+            {o.discountCents > 0 && (
+              <p className="text-sm text-green-700">
+                Desconto {o.loyaltyReward ? "de fidelidade" : `cupom ${o.couponCode}`}: −{formatBRL(o.discountCents)}
+              </p>
+            )}
             <p className="font-semibold">{formatBRL(o.totalCents)}</p>
             <form action={updateOrderStatus} className="flex gap-2">
               <input type="hidden" name="orderId" value={o.id} />

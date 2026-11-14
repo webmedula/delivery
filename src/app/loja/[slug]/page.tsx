@@ -3,6 +3,9 @@ import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { canTakeOrders } from "@/lib/subscription";
 import { Storefront } from "@/components/Storefront";
+import { getLoyaltyStatus, getSessionCustomer } from "@/lib/customers";
+import { describeDiscount } from "@/lib/discounts";
+import { formatPhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,14 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
   if (!store) notFound();
 
   const accepting = store.isOpen && canTakeOrders(store);
+  const reward = { type: store.loyaltyRewardType, value: store.loyaltyRewardValue };
+  const customer = await getSessionCustomer(store.id);
+  const [addresses, loyalty] = customer
+    ? await Promise.all([
+        db.customerAddress.findMany({ where: { customerId: customer.id }, orderBy: { lastUsedAt: "desc" }, take: 5 }),
+        getLoyaltyStatus(store, customer.id),
+      ])
+    : [[], null];
   const sections = [
     ...store.categories.map((c) => ({ id: c.id, name: c.name, products: store.products.filter((p) => p.categoryId === c.id) })),
     { id: "outros", name: "Outros", products: store.products.filter((p) => !p.categoryId) },
@@ -43,7 +54,18 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         acceptsDelivery: store.acceptsDelivery,
         acceptsPickup: store.acceptsPickup,
         accepting,
+        loyalty: store.loyaltyEnabled ? `a cada ${store.loyaltyOrdersRequired} pedidos, ganhe ${describeDiscount(reward)}` : null,
+        reward: store.loyaltyEnabled ? reward : null,
       }}
+      customer={
+        customer && {
+          name: customer.name,
+          phone: formatPhone(customer.phone),
+          marketingOptIn: customer.marketingOptIn,
+          addresses: addresses.map((a) => ({ id: a.id, address: a.address })),
+          loyalty,
+        }
+      }
       sections={sections.map((s) => ({
         ...s,
         products: s.products.map((p) => ({ id: p.id, name: p.name, description: p.description, priceCents: p.priceCents, imageUrl: p.imageUrl })),

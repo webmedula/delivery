@@ -16,6 +16,7 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
   const message = [
     `Olá! Acabei de fazer o pedido #${order.number} pelo cardápio.`,
     ...order.items.map((i) => `${i.quantity}x ${i.name}`),
+    ...(order.discountCents > 0 ? [`Desconto: ${formatBRL(order.discountCents)}${order.couponCode ? ` (cupom ${order.couponCode})` : order.loyaltyReward ? " (fidelidade)" : ""}`] : []),
     `Total: ${formatBRL(order.totalCents)} (${paymentLabel[order.paymentMethod]})`,
     order.fulfillment === "DELIVERY" ? `Entrega: ${order.address}` : "Vou retirar no local.",
   ].join("\n");
@@ -33,6 +34,11 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
           <div key={i.id} className="flex justify-between"><span>{i.quantity}× {i.name}</span><span>{formatBRL(i.unitPriceCents * i.quantity)}</span></div>
         ))}
         <div className="flex justify-between border-t border-stone-100 pt-2"><span>Entrega</span><span>{formatBRL(order.deliveryFeeCents)}</span></div>
+        {order.discountCents > 0 && (
+          <div className="flex justify-between text-green-700">
+            <span>{order.loyaltyReward ? "Recompensa de fidelidade" : `Cupom ${order.couponCode ?? ""}`}</span><span>−{formatBRL(order.discountCents)}</span>
+          </div>
+        )}
         <div className="flex justify-between font-semibold"><span>Total</span><span>{formatBRL(order.totalCents)}</span></div>
         <p className="text-stone-600">Pagamento: {paymentLabel[order.paymentMethod]}</p>
         {order.paymentMethod === "PIX" && store.pixKey && <p className="text-stone-600">Chave Pix da loja: <strong>{store.pixKey}</strong></p>}
@@ -43,6 +49,7 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
         </a>
       )}
       <Link href={`/loja/${slug}`} className="btn-ghost w-full">Voltar ao cardápio</Link>
+      <Link href={`/loja/${slug}/conta`} className="block text-center text-sm text-brand-700">Ver meus pedidos e selos</Link>
     </main>
   );
 }
