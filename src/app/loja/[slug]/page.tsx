@@ -7,6 +7,7 @@ import { getLoyaltyStatus, getSessionCustomer } from "@/lib/customers";
 import { describeDiscount } from "@/lib/discounts";
 import { formatPhone } from "@/lib/phone";
 import { onlineMethods } from "@/lib/payments";
+import { etaFor, formatMinutes } from "@/lib/delivery";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ async function getStore(slug: string) {
     include: {
       categories: { orderBy: { position: "asc" } },
       products: { where: { available: true }, orderBy: { position: "asc" } },
+      deliveryZones: { where: { active: true }, orderBy: { name: "asc" } },
     },
   });
 }
@@ -59,6 +61,11 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         loyalty: store.loyaltyEnabled ? `a cada ${store.loyaltyOrdersRequired} pedidos, ganhe ${describeDiscount(reward)}` : null,
         reward: store.loyaltyEnabled ? reward : null,
         online: onlineMethods(store),
+        zones: store.deliveryZones.map((z) => ({ id: z.id, name: z.name, feeCents: z.feeCents })),
+        eta: {
+          delivery: (() => { const e = etaFor(store, "DELIVERY"); return e && formatMinutes(e); })(),
+          pickup: (() => { const e = etaFor(store, "PICKUP"); return e && formatMinutes(e); })(),
+        },
         demo: store.isDemo,
       }}
       customer={

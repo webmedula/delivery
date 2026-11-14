@@ -18,6 +18,7 @@ import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
 import { asaasSandbox } from "@/lib/asaas";
 import { canEnableOnlinePayments } from "@/lib/payment-events";
 import { HEX_COLOR } from "@/lib/theme";
+import { parseMinutesRange, stampsFor } from "@/lib/delivery";
 
 const DEMO_BLOCKED = "Esta é uma loja de demonstração: assinatura e pagamento online ficam desligados.";
 
@@ -30,8 +31,58 @@ export async function updateOrderStatus(formData: FormData) {
   const id = String(formData.get("orderId"));
   const status = String(formData.get("status")) as OrderStatus;
   if (!ORDER_STATUSES.includes(status)) return;
-  await db.order.updateMany({ where: { id, storeId }, data: { status } });
+  const order = await db.order.findFirst({
+    where: { id, storeId },
+    select: { acceptedAt: true, dispatchedAt: true, completedAt: true, canceledAt: true },
+  });
+  if (!order) return;
+  await db.order.updateMany({ where: { id, storeId }, data: { status, ...stampsFor(status, order) } });
   revalidatePath("/painel");
+  revalidatePath("/painel/historico");
+}
+
+// --- Bairros e taxas de entrega ---
+
+export type ZoneState = { error?: string; ok?: boolean } | undefined;
+
+export async function createDeliveryZone(_: ZoneState, formData: FormData): Promise<ZoneState> {
+  const { storeId } = await requireStoreUser();
+  const name = String(formData.get("name") ?? "").replace(/\s+/g, " ").trim();
+  if (name.length < 2 || name.length > 60) return { error: "Informe o nome do bairro." };
+  const feeCents = parseBRLToCents(String(formData.get("fee") ?? "") || "0");
+  if (feeCents === null) return { error: "Taxa inválida." };
+  const count = await db.deliveryZone.count({ where: { storeId } });
+  if (count >= 200) return { error: "Limite de 200 bairros." };
+  try {
+    await db.deliveryZone.create({ data: { storeId, name, feeCents } });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { error: "Esse bairro já está cadastrado." };
+    throw e;
+  }
+  revalidatePath("/painel/loja");
+  return { ok: true };
+}
+
+export async function updateDeliveryZoneFee(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const feeCents = parseBRLToCents(String(formData.get("fee") ?? "") || "0");
+  if (feeCents === null) return;
+  await db.deliveryZone.updateMany({ where: { id: String(formData.get("id")), storeId }, data: { feeCents } });
+  revalidatePath("/painel/loja");
+}
+
+export async function toggleDeliveryZone(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const zone = await db.deliveryZone.findFirst({ where: { id: String(formData.get("id")), storeId } });
+  if (!zone) return;
+  await db.deliveryZone.update({ where: { id: zone.id }, data: { active: !zone.active } });
+  revalidatePath("/painel/loja");
+}
+
+export async function deleteDeliveryZone(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.deliveryZone.deleteMany({ where: { id: String(formData.get("id")), storeId } });
+  revalidatePath("/painel/loja");
 }
 
 export async function createCategory(formData: FormData) {
@@ -126,6 +177,11 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
   const themeColor = get("themeColor").toLowerCase();
   if (themeColor && !HEX_COLOR.test(themeColor)) return { error: "Cor inválida." };
 
+  const deliveryTime = parseMinutesRange(get("deliveryMinutesMin"), get("deliveryMinutesMax"));
+  if ("error" in deliveryTime) return { error: `Tempo de entrega: ${deliveryTime.error}` };
+  const pickupTime = parseMinutesRange(get("pickupMinutesMin"), get("pickupMinutesMax"));
+  if ("error" in pickupTime) return { error: `Tempo de retirada: ${pickupTime.error}` };
+
   const acceptsDelivery = formData.get("acceptsDelivery") === "on";
   const acceptsPickup = formData.get("acceptsPickup") === "on";
   if (!acceptsDelivery && !acceptsPickup) return { error: "Ative entrega, retirada ou os dois." };
@@ -144,6 +200,10 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
       minOrderCents,
       acceptsDelivery,
       acceptsPickup,
+      deliveryMinutesMin: deliveryTime.min,
+      deliveryMinutesMax: deliveryTime.max,
+      pickupMinutesMin: pickupTime.min,
+      pickupMinutesMax: pickupTime.max,
       isOpen: formData.get("isOpen") === "on",
     },
   });

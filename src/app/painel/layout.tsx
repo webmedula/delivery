@@ -7,6 +7,7 @@ import { logout } from "@/app/(auth)/actions";
 
 const nav = [
   { href: "/painel", label: "Pedidos" },
+  { href: "/painel/historico", label: "Histórico" },
   { href: "/painel/cardapio", label: "Cardápio" },
   { href: "/painel/clientes", label: "Clientes" },
   { href: "/painel/promocoes", label: "Cupons" },
