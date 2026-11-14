@@ -54,7 +54,7 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
             <strong className="text-base text-stone-900">{formatEta(order.createdAt, order.etaMinutesMin!, order.etaMinutesMax)}</strong>
           </p>
         )}
-        {order.status === "OUT_FOR_DELIVERY" && <p className="mt-3 text-sm text-stone-700">Seu pedido está a caminho. Fique de olho no telefone!</p>}
+        {order.status === "OUT_FOR_DELIVERY" && <p className="mt-3 text-sm text-stone-700">Seu pedido está a caminho{order.courierName ? <> com <strong>{order.courierName.trim().split(/\s+/)[0]}</strong></> : ""}. Fique de olho no telefone!</p>}
         {order.status === "READY_FOR_PICKUP" && (
           <p className="mt-3 text-sm text-stone-700">Pode vir buscar{store.address ? <> em <strong>{store.address}</strong></> : ""}.</p>
         )}

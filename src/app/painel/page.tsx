@@ -4,12 +4,13 @@ import { requireStoreUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { orderStatusLabel, paymentLabel, paymentStatusLabel } from "@/lib/order-status";
-import { BOARD_COLUMNS, OPEN_STATUSES, brDayStart, customerMessage, formatEta, minutesSince, nextStep } from "@/lib/delivery";
+import { BOARD_COLUMNS, OPEN_STATUSES, brDayStart, courierMessage, customerMessage, formatEta, minutesSince, nextStep } from "@/lib/delivery";
 import { updateOrderStatus } from "./actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { NewOrderAlert } from "@/components/NewOrderAlert";
 import { formatPhone, whatsappLink } from "@/lib/phone";
-import { storeUrl } from "@/lib/store-url";
+import { courierUrl, storeUrl } from "@/lib/store-url";
+import { CourierPicker } from "@/components/CourierPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,12 @@ export default async function OrdersPage() {
     ),
   );
   const menuUrl = await storeUrl(store.slug);
+  // Entregadores ativos, mais quem já está em algum pedido aberto (mesmo pausado).
+  const couriers = await db.courier.findMany({
+    where: { storeId, OR: [{ active: true }, { id: { in: open.map((o) => o.courierId).filter((id): id is string => !!id) } }] },
+    orderBy: { name: "asc" },
+  });
+  const courierLinks = new Map(await Promise.all(couriers.map(async (c) => [c.id, { url: await courierUrl(c.token), phone: c.phone, name: c.name }] as const)));
   const now = new Date();
   const pendingIds = open.filter((o) => o.status === "PENDING").map((o) => o.id);
 
@@ -108,6 +115,8 @@ export default async function OrdersPage() {
                     storeName={store.name}
                     storeAddress={store.address}
                     trackingUrl={`${menuUrl}/pedido/${o.id}`}
+                    couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
+                    courier={o.courierId ? courierLinks.get(o.courierId) : undefined}
                   />
                 ))}
               </div>
@@ -119,8 +128,9 @@ export default async function OrdersPage() {
   );
 }
 
-function OrderCard({ order: o, nth, now, storeName, storeAddress, trackingUrl }: {
+function OrderCard({ order: o, nth, now, storeName, storeAddress, trackingUrl, couriers, courier }: {
   order: BoardOrder; nth?: number; now: Date; storeName: string; storeAddress: string | null; trackingUrl: string;
+  couriers: { id: string; name: string }[]; courier?: { url: string; phone: string; name: string };
 }) {
   const step = nextStep(o.status, o.fulfillment);
   const age = minutesSince(o.createdAt, now);
@@ -188,6 +198,21 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, trackingUrl }:
           <input type="hidden" name="status" value={step.status} />
           <button className="btn w-full py-2.5 text-base">{step.label} →</button>
         </form>
+      )}
+      {o.fulfillment === "DELIVERY" && o.status !== "PENDING" && couriers.length > 0 && (
+        <div className="space-y-2 rounded-lg bg-sky-50 p-2">
+          <CourierPicker key={o.courierId ?? ""} orderId={o.id} courierId={o.courierId} couriers={couriers} />
+          {courier && (
+            <a
+              href={whatsappLink(courier.phone, courierMessage(o, courier.name, courier.url))}
+              target="_blank"
+              rel="noopener"
+              className="block text-center text-sm font-medium text-sky-800 underline"
+            >
+              Mandar o pedido para {courier.name} no WhatsApp
+            </a>
+          )}
+        </div>
       )}
       <a
         href={whatsappLink(o.customerPhone, message)}

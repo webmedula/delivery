@@ -105,3 +105,42 @@ describe("dia no horário de Brasília", () => {
     expect(brDayStart("2026-11-14").toISOString()).toBe("2026-11-14T03:00:00.000Z");
   });
 });
+
+describe("entregadores", () => {
+  it("monta o link do mapa com o bairro", async () => {
+    const { mapQuery, googleMapsLink } = await import("./delivery");
+    expect(mapQuery("Rua A, 10", "Centro")).toBe("Rua A, 10, Centro");
+    expect(mapQuery("Rua A, 10 - centro", "Centro")).toBe("Rua A, 10 - centro");
+    expect(googleMapsLink("Rua A, 10")).toBe("https://www.google.com/maps/search/?api=1&query=Rua%20A%2C%2010");
+  });
+  it("diz o que cobrar na porta", async () => {
+    const { amountToCollect } = await import("./delivery");
+    const base = { totalCents: 4500, changeForCents: 5000, paymentStatus: "NONE" };
+    expect(amountToCollect({ ...base, paymentMethod: "CASH" }).text.replace(/\s/g, " ")).toContain("leve R$ 5,00 de troco");
+    expect(amountToCollect({ ...base, paymentMethod: "CASH" }).cents).toBe(4500);
+    expect(amountToCollect({ ...base, paymentMethod: "ONLINE_PIX", paymentStatus: "PAID" }).cents).toBe(0);
+    expect(amountToCollect({ ...base, paymentMethod: "PIX" }).cents).toBe(0);
+  });
+  it("o entregador só sai e entrega", async () => {
+    const { courierNextStep } = await import("./delivery");
+    expect(courierNextStep("PREPARING")?.status).toBe("OUT_FOR_DELIVERY");
+    expect(courierNextStep("OUT_FOR_DELIVERY")?.status).toBe("COMPLETED");
+    expect(courierNextStep("PENDING")).toBeNull();
+    expect(courierNextStep("COMPLETED")).toBeNull();
+  });
+  it("fecha o dia por entregador", async () => {
+    const { courierSummary } = await import("./delivery");
+    const o = { fulfillment: "DELIVERY", deliveryFeeCents: 600, totalCents: 5000, changeForCents: null, paymentStatus: "NONE" };
+    const rows = courierSummary([
+      { ...o, courierId: "a", courierName: "Leo", paymentMethod: "CASH" },
+      { ...o, courierId: "a", courierName: "Leo", paymentMethod: "CARD_ON_DELIVERY" },
+      { ...o, courierId: "a", courierName: "Leo", paymentMethod: "ONLINE_PIX", paymentStatus: "PAID" },
+      { ...o, courierId: null, courierName: null, paymentMethod: "CASH" },
+      { ...o, fulfillment: "PICKUP", courierId: null, courierName: null, paymentMethod: "CASH" },
+    ]);
+    expect(rows).toEqual([
+      { name: "Leo", deliveries: 3, feesCents: 1800, cashCents: 5000, cardCents: 5000 },
+      { name: "Sem entregador", deliveries: 1, feesCents: 600, cashCents: 5000, cardCents: 0 },
+    ]);
+  });
+});

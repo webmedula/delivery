@@ -95,6 +95,7 @@ model Store {
   pickupMinutesMin   Int?
   pickupMinutesMax   Int?
   deliveryZones      DeliveryZone[]
+  couriers           Courier[]
 
   planId             String
   plan               Plan               @relation(fields: [planId], references: [id])
@@ -217,6 +218,10 @@ model Order {
   etaMinutesMin    Int?
   etaMinutesMax    Int?
   // Quando o pedido passou por cada etapa (para histórico e tempo médio).
+  // Entregador que leva o pedido (nome copiado para o histórico continuar certo se ele for excluído).
+  courierId        String?
+  courier          Courier?        @relation(fields: [courierId], references: [id], onDelete: SetNull)
+  courierName      String?
   acceptedAt       DateTime?
   dispatchedAt     DateTime?       // saiu para entrega / ficou pronto para retirar
   completedAt      DateTime?
@@ -230,6 +235,7 @@ model Order {
   @@index([customerId])
   @@index([couponId])
   @@index([storeId, status])
+  @@index([courierId])
 }
 
 // Bairro atendido e sua taxa de entrega. Se a loja tem bairros, o cliente escolhe um na sacola
@@ -245,6 +251,21 @@ model DeliveryZone {
   createdAt DateTime @default(now())
 
   @@unique([storeId, name])
+}
+
+// Entregador da loja. Acessa os pedidos dele por um link secreto (/entregador/[token]), sem senha.
+model Courier {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String   // mesmo formato de Customer.phone: DDD + número, sem 55
+  active    Boolean  @default(true)
+  token     String   @unique
+  orders    Order[]
+  createdAt DateTime @default(now())
+
+  @@index([storeId])
 }
 
 model OrderItem {

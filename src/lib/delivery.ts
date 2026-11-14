@@ -151,6 +151,7 @@ type MessageOrder = {
   createdAt: Date;
   etaMinutesMin: number | null;
   etaMinutesMax: number | null;
+  courierName?: string | null;
 };
 
 /** Mensagem pronta de WhatsApp para a loja avisar o cliente sobre a etapa atual do pedido. */
@@ -175,7 +176,7 @@ export function customerMessage(order: MessageOrder, storeName: string, tracking
       body = `${hi} ${cap(ref)} foi aceito e já está em preparo.${eta}`;
       break;
     case "OUT_FOR_DELIVERY":
-      body = `${hi} ${cap(ref)} saiu para entrega e logo chega aí.${toPay}`;
+      body = `${hi} ${cap(ref)} saiu para entrega${order.courierName ? ` com ${order.courierName.trim().split(/\s+/)[0]}` : ""} e logo chega aí.${toPay}`;
       break;
     case "READY_FOR_PICKUP":
       body = `${hi} ${cap(ref)} está pronto para retirar${storeAddress ? ` em ${storeAddress}` : ""}.${toPay}`;
@@ -210,4 +211,94 @@ export function brDate(d: Date) {
 /** Meia-noite (horário de Brasília) do dia "2026-11-14", ou de hoje. */
 export function brDayStart(day: string = brDate(new Date())) {
   return new Date(new Date(`${day}T00:00:00Z`).getTime() + BRT_OFFSET);
+}
+
+// --- Entregadores ---
+
+/** Endereço para o mapa: acrescenta o bairro se ele não estiver escrito no endereço. */
+export function mapQuery(address: string, zoneName?: string | null) {
+  const a = address.trim();
+  if (!zoneName) return a;
+  const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return norm(a).includes(norm(zoneName)) ? a : `${a}, ${zoneName}`;
+}
+
+export function googleMapsLink(address: string, zoneName?: string | null) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery(address, zoneName))}`;
+}
+
+export function wazeLink(address: string, zoneName?: string | null) {
+  return `https://waze.com/ul?q=${encodeURIComponent(mapQuery(address, zoneName))}&navigate=yes`;
+}
+
+type CollectOrder = { paymentMethod: string; paymentStatus: string; totalCents: number; changeForCents: number | null };
+
+/**
+ * O que o entregador cobra na porta. Pago online: nada. Pix pela chave: o cliente
+ * normalmente já pagou, mas a loja confere (o entregador só avisa).
+ */
+export function amountToCollect(o: CollectOrder): { cents: number; text: string } {
+  if (o.paymentStatus === "PAID") return { cents: 0, text: "Já pago online. Não cobrar." };
+  switch (o.paymentMethod) {
+    case "CASH":
+      return {
+        cents: o.totalCents,
+        text:
+          `Cobrar ${formatBRL(o.totalCents)} em dinheiro.` +
+          (o.changeForCents && o.changeForCents > o.totalCents
+            ? ` O cliente paga com ${formatBRL(o.changeForCents)}: leve ${formatBRL(o.changeForCents - o.totalCents)} de troco.`
+            : ""),
+      };
+    case "CARD_ON_DELIVERY":
+      return { cents: o.totalCents, text: `Cobrar ${formatBRL(o.totalCents)} no cartão (levar a maquininha).` };
+    case "PIX":
+      return { cents: 0, text: `Pix de ${formatBRL(o.totalCents)}: confirme com a loja se já caiu.` };
+    default:
+      return { cents: 0, text: "Já pago online. Não cobrar." };
+  }
+}
+
+/** Próximo passo que o entregador pode dar pelo link dele. */
+export function courierNextStep(status: OrderStatus): { status: OrderStatus; label: string } | null {
+  if (status === "CONFIRMED" || status === "PREPARING") return { status: "OUT_FOR_DELIVERY", label: "Peguei, saí para entrega" };
+  if (status === "OUT_FOR_DELIVERY") return { status: "COMPLETED", label: "Entreguei" };
+  return null;
+}
+
+type CourierMessageOrder = CollectOrder & {
+  number: number; customerName: string; customerPhone: string; address: string | null; deliveryZoneName: string | null; notes: string | null;
+};
+
+/** Mensagem de WhatsApp da loja para o entregador com o pedido e o link dele. */
+export function courierMessage(o: CourierMessageOrder, courierName: string, courierUrl: string) {
+  const lines = [
+    `Olá, ${courierName.trim().split(/\s+/)[0]}! Entrega do pedido #${o.number}:`,
+    `Cliente: ${o.customerName} (${o.customerPhone.replace(/^(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3")})`,
+    `Endereço: ${o.address ? mapQuery(o.address, o.deliveryZoneName) : ""}`,
+    amountToCollect(o).text,
+    ...(o.notes ? [`Obs.: ${o.notes}`] : []),
+    o.address ? `Mapa: ${googleMapsLink(o.address, o.deliveryZoneName)}` : "",
+    `Seus pedidos: ${courierUrl}`,
+  ].filter(Boolean);
+  return lines.join("\n").replace(/ /g, " ");
+}
+
+type SummaryOrder = { courierId: string | null; courierName: string | null; fulfillment: string; deliveryFeeCents: number } & CollectOrder;
+
+/** Fechamento do dia por entregador: entregas, taxas e quanto recebeu em dinheiro e cartão. */
+export function courierSummary(orders: SummaryOrder[]) {
+  const map = new Map<string, { name: string; deliveries: number; feesCents: number; cashCents: number; cardCents: number }>();
+  for (const o of orders) {
+    if (o.fulfillment !== "DELIVERY") continue;
+    const key = o.courierId ?? (o.courierName ? `nome:${o.courierName}` : "sem");
+    const row = map.get(key) ?? { name: o.courierName ?? "Sem entregador", deliveries: 0, feesCents: 0, cashCents: 0, cardCents: 0 };
+    row.deliveries++;
+    row.feesCents += o.deliveryFeeCents;
+    if (o.paymentStatus !== "PAID") {
+      if (o.paymentMethod === "CASH") row.cashCents += o.totalCents;
+      if (o.paymentMethod === "CARD_ON_DELIVERY") row.cardCents += o.totalCents;
+    }
+    map.set(key, row);
+  }
+  return [...map.values()].sort((a, b) => b.deliveries - a.deliveries);
 }

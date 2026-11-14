@@ -3,7 +3,7 @@ import { requireStoreUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { orderStatusLabel, paymentLabel } from "@/lib/order-status";
-import { brDate, brDayStart, formatClock } from "@/lib/delivery";
+import { brDate, brDayStart, courierSummary, formatClock } from "@/lib/delivery";
 import { formatPhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +35,9 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
     ? Math.round(timed.reduce((s, o) => s + (o.completedAt!.getTime() - o.createdAt.getTime()), 0) / timed.length / 60_000)
     : null;
 
+  const perCourier = courierSummary(done);
+  const showCouriers = perCourier.some((r) => r.name !== "Sem entregador");
+
   const prev = brDate(new Date(start.getTime() - DAY / 2));
   const next = brDate(new Date(end.getTime() + DAY / 2));
   const label = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "long", timeZone: "UTC" }).format(new Date(`${day}T12:00:00Z`));
@@ -62,6 +65,37 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
         <div className="card"><p className="text-sm text-stone-500">Tempo médio da entrega</p><p className="text-2xl font-bold">{avgMinutes !== null ? `${avgMinutes} min` : "—"}</p><p className="text-xs text-stone-500">do pedido até entregue</p></div>
       </div>
 
+      {showCouriers && (
+        <div className="card space-y-2">
+          <h2 className="font-semibold">Fechamento por entregador</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-stone-500">
+                <tr>
+                  <th className="py-1 pr-3">Entregador</th>
+                  <th className="py-1 pr-3 text-right">Entregas</th>
+                  <th className="py-1 pr-3 text-right">Taxas</th>
+                  <th className="py-1 pr-3 text-right">Recebeu em dinheiro</th>
+                  <th className="py-1 text-right">Recebeu no cartão</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {perCourier.map((r) => (
+                  <tr key={r.name}>
+                    <td className="py-1.5 pr-3 font-medium">{r.name}</td>
+                    <td className="py-1.5 pr-3 text-right">{r.deliveries}</td>
+                    <td className="py-1.5 pr-3 text-right">{formatBRL(r.feesCents)}</td>
+                    <td className="py-1.5 pr-3 text-right font-semibold">{formatBRL(r.cashCents)}</td>
+                    <td className="py-1.5 text-right">{formatBRL(r.cardCents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-stone-500">&quot;Recebeu em dinheiro&quot; é o que o entregador deve devolver à loja no fim do dia.</p>
+        </div>
+      )}
+
       {orders.length === 0 ? (
         <p className="card text-center text-stone-500">Nenhum pedido concluído ou cancelado neste dia.</p>
       ) : (
@@ -73,6 +107,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                 <th className="px-3 py-2">Hora</th>
                 <th className="px-3 py-2">Cliente</th>
                 <th className="px-3 py-2">Entrega</th>
+                <th className="px-3 py-2">Entregador</th>
                 <th className="px-3 py-2">Pagamento</th>
                 <th className="px-3 py-2 text-right">Total</th>
                 <th className="px-3 py-2">Levou</th>
@@ -92,6 +127,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                     {o.fulfillment === "DELIVERY" ? (o.deliveryZoneName ?? "Entrega") : "Retirada"}
                     {o.fulfillment === "DELIVERY" && o.deliveryFeeCents > 0 && <span className="block text-xs text-stone-500">taxa {formatBRL(o.deliveryFeeCents)}</span>}
                   </td>
+                  <td className="px-3 py-2">{o.courierName ?? "—"}</td>
                   <td className="px-3 py-2">{paymentLabel[o.paymentMethod]}</td>
                   <td className="px-3 py-2 text-right font-medium">{formatBRL(o.totalCents)}</td>
                   <td className="px-3 py-2">{o.completedAt ? `${Math.round((o.completedAt.getTime() - o.createdAt.getTime()) / 60_000)} min` : "—"}</td>
