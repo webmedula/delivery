@@ -18,6 +18,8 @@ export default async function StorePage() {
           whatsapp: store.whatsapp ?? "",
           address: store.address ?? "",
           pixKey: store.pixKey ?? "",
+          logoUrl: store.logoUrl ?? "",
+          themeColor: store.themeColor ?? "",
           deliveryFee: (store.deliveryFeeCents / 100).toFixed(2).replace(".", ","),
           minOrder: (store.minOrderCents / 100).toFixed(2).replace(".", ","),
           acceptsDelivery: store.acceptsDelivery,

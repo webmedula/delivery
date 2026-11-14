@@ -50,6 +50,7 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         name: store.name,
         description: store.description,
         address: store.address,
+        logoUrl: store.logoUrl,
         deliveryFeeCents: store.deliveryFeeCents,
         minOrderCents: store.minOrderCents,
         acceptsDelivery: store.acceptsDelivery,

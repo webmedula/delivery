@@ -177,7 +177,7 @@ Quatro lojas de demonstração para apresentar o sistema a quem está conhecendo
 
 Senha de todas: o valor de `DEMO_PASSWORD` (se não estiver definida, `demo1234`).
 
-Cada uma tem cardápio com fotos, 16 clientes, pedidos dos últimos 30 dias, 6 pedidos em andamento,
+Cada uma tem logo e cor próprios, cardápio com fotos reais (Unsplash, licença livre, carregadas do CDN do Unsplash), 16 clientes, pedidos dos últimos 30 dias, 6 pedidos em andamento,
 cupons, fidelidade (uma cliente a 1 pedido da recompensa e outro com a recompensa liberada) e uma
 campanha de promoção pela metade.
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"><rect width="240" height="240" rx="56" fill="#4c1d95"/>
+<circle cx="120" cy="96" r="44" fill="#fbbf24"/>
+<g stroke="#fbbf24" stroke-width="6" stroke-linecap="round"><path d="M120 34v-8M163 53l6-6M77 53l-6-6M182 96h8M58 96h-8"/></g>
+<path d="M52 118h136c0 38-30 64-68 64s-68-26-68-64z" fill="#7c3aed"/>
+<path d="M52 118h136c-2 8-8 12-16 12H68c-8 0-14-4-16-12z" fill="#a78bfa"/>
+<circle cx="86" cy="112" r="11" fill="#fde68a"/><circle cx="110" cy="108" r="10" fill="#ef4444"/><circle cx="134" cy="110" r="11" fill="#fde68a"/><circle cx="156" cy="113" r="9" fill="#22c55e"/>
+<path d="M60 150c14 8 26 8 40 0s26-8 40 0 26 8 40 0" stroke="#c4b5fd" stroke-width="5" fill="none" stroke-linecap="round"/>
+<text x="120" y="206" text-anchor="middle" font-family="Poppins,Montserrat,Arial Black,Helvetica,Arial,sans-serif" font-weight="800" font-size="24" letter-spacing="2" fill="#fff">AÇAÍ</text>
+<text x="120" y="225" text-anchor="middle" font-family="Poppins,Montserrat,Arial Black,Helvetica,Arial,sans-serif" font-weight="600" font-size="12" letter-spacing="5" fill="#ddd6fe">DA PRAIA</text></svg>

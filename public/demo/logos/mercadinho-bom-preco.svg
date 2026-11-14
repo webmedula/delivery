@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"><rect width="240" height="240" rx="56" fill="#166534"/>
+<path d="M120 40c22 0 34 14 34 30-18 2-30-6-34-30z" fill="#86efac"/>
+<path d="M120 40c-4 18-2 34 8 46" stroke="#14532d" stroke-width="4" fill="none"/>
+<circle cx="88" cy="88" r="20" fill="#ef4444"/><circle cx="152" cy="92" r="16" fill="#f97316"/><circle cx="120" cy="96" r="18" fill="#facc15"/>
+<path d="M44 104h152l-16 66c-2 8-8 12-16 12H76c-8 0-14-4-16-12z" fill="#fef9c3"/>
+<g stroke="#166534" stroke-width="5" stroke-linecap="round"><path d="M90 120l4 46M120 120v46M150 120l-4 46M58 140h124"/></g>
+<rect x="36" y="98" width="168" height="14" rx="7" fill="#facc15"/>
+<text x="120" y="216" text-anchor="middle" font-family="Poppins,Montserrat,Arial Black,Helvetica,Arial,sans-serif" font-weight="800" font-size="22" letter-spacing="2" fill="#fff">BOM PREÇO</text>
+<text x="120" y="232" text-anchor="middle" font-family="Poppins,Montserrat,Arial Black,Helvetica,Arial,sans-serif" font-weight="600" font-size="10" letter-spacing="5" fill="#bbf7d0">MERCADINHO</text></svg>

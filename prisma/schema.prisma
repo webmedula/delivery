@@ -82,6 +82,7 @@ model Store {
   whatsapp           String?            // só dígitos, com DDI: 5511999999999
   address            String?
   logoUrl            String?
+  themeColor         String?            // cor do cardápio, ex.: #ea580c (vazio = laranja WebTenda)
   isOpen             Boolean            @default(true)
   deliveryFeeCents   Int                @default(0)
   minOrderCents      Int                @default(0)
