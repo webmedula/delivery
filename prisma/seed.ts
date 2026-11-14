@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { setupDemoStores } from "./demo";
 
 const db = new PrismaClient();
 
@@ -11,7 +12,20 @@ async function main() {
   ];
   for (const p of plans) await db.plan.upsert({ where: { code: p.code }, update: p, create: p });
 
-  // Loja de demonstração (demo@webtenda.com.br / demo1234): só fora de produção.
+  // Lojas demo para apresentar o sistema (prisma/demo.ts): com DEMO_STORES=1,
+  // cria as que faltarem a cada subida. Não recria as que já existem.
+  if (process.env.DEMO_STORES === "1" || process.env.DEMO_STORES === "true") {
+    try {
+      const result = await setupDemoStores(db, { reset: false });
+      const created = result.filter((r) => r.created).map((r) => r.name);
+      if (created.length) console.log(`Lojas demo criadas: ${created.join(", ")}`);
+    } catch (e) {
+      // Não impede o app de subir.
+      console.error("Lojas demo não criadas:", e instanceof Error ? e.message : e);
+    }
+  }
+
+  // Loja de desenvolvimento (demo@webtenda.com.br / demo1234): só fora de produção.
   if (process.env.NODE_ENV === "production") return;
   if (await db.store.findUnique({ where: { slug: "lanchonete-demo" } })) return;
   const plan = await db.plan.findUniqueOrThrow({ where: { code: "profissional" } });

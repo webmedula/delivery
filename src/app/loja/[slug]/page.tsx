@@ -58,6 +58,7 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         loyalty: store.loyaltyEnabled ? `a cada ${store.loyaltyOrdersRequired} pedidos, ganhe ${describeDiscount(reward)}` : null,
         reward: store.loyaltyEnabled ? reward : null,
         online: onlineMethods(store),
+        demo: store.isDemo,
       }}
       customer={
         customer && {

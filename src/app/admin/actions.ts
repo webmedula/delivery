@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { endSupportSession, hashPassword, requireAdmin, startSupportSession } from "@/lib/auth";
 import * as asaas from "@/lib/asaas";
+import { removeDemoStores, setupDemoStores } from "../../../prisma/demo";
 
 export type AdminState = { error?: string; ok?: string } | undefined;
 
@@ -107,4 +108,26 @@ export async function leaveSupport() {
   await requireAdmin();
   await endSupportSession();
   redirect("/admin/lojas");
+}
+
+// --- Lojas demo (prisma/demo.ts) ---
+
+export async function resetDemoStores(_: AdminState, _formData: FormData): Promise<AdminState> {
+  const admin = await requireAdmin();
+  try {
+    const result = await setupDemoStores(db, { reset: true });
+    await log(admin.email, "demo_reset", null, result.map((r) => r.slug).join(", "));
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Não foi possível recriar as lojas demo." };
+  }
+  revalidatePath("/admin", "layout");
+  return { ok: "Lojas demo recriadas com dados novos." };
+}
+
+export async function deleteDemoStores(_: AdminState, _formData: FormData): Promise<AdminState> {
+  const admin = await requireAdmin();
+  const count = await removeDemoStores(db);
+  await log(admin.email, "demo_delete", null, `${count} loja(s)`);
+  revalidatePath("/admin", "layout");
+  return { ok: `${count} loja(s) demo apagada(s).` };
 }

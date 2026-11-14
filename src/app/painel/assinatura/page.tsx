@@ -5,6 +5,7 @@ import { statusLabel, trialDaysLeft } from "@/lib/subscription";
 import { asaasConfigured } from "@/lib/asaas";
 import { openInvoiceUrl } from "@/lib/billing";
 import { CancelButton, PlanPicker } from "@/components/BillingForms";
+import { DemoNotice } from "@/components/DemoNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ const dateFmt = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo"
 
 export default async function SubscriptionPage() {
   const { store } = await requireStoreUser();
+  if (store.isDemo) return <DemoNotice title="Assinatura" text="Lojas de demonstração não têm cobrança: a assinatura fica sempre ativa e os planos não podem ser contratados por aqui." />;
   const plans = await db.plan.findMany({ where: { active: true }, orderBy: { priceCents: "asc" } });
   const days = trialDaysLeft(store);
   const enabled = asaasConfigured();
