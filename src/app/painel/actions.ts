@@ -9,7 +9,7 @@ import { z } from "zod";
 import { Prisma, type OrderStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { hashPassword, requireStoreUser } from "@/lib/auth";
-import { randomInt } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { parseBRLToCents } from "@/lib/money";
 import { cancelStoreSubscription, subscribeStore } from "@/lib/billing";
 import { normalizeCouponCode } from "@/lib/discounts";
@@ -19,6 +19,7 @@ import { asaasSandbox } from "@/lib/asaas";
 import { canEnableOnlinePayments } from "@/lib/payment-events";
 import { HEX_COLOR } from "@/lib/theme";
 import { parseMinutesRange, stampsFor } from "@/lib/delivery";
+import { isValidPhone, normalizePhone } from "@/lib/phone";
 
 const DEMO_BLOCKED = "Esta é uma loja de demonstração: assinatura e pagamento online ficam desligados.";
 
@@ -39,6 +40,59 @@ export async function updateOrderStatus(formData: FormData) {
   await db.order.updateMany({ where: { id, storeId }, data: { status, ...stampsFor(status, order) } });
   revalidatePath("/painel");
   revalidatePath("/painel/historico");
+}
+
+// --- Entregadores ---
+
+export type CourierState = { error?: string; ok?: boolean } | undefined;
+
+const newCourierToken = () => randomBytes(18).toString("base64url");
+
+export async function createCourier(_: CourierState, formData: FormData): Promise<CourierState> {
+  const { storeId } = await requireStoreUser();
+  const name = String(formData.get("name") ?? "").replace(/\s+/g, " ").trim();
+  if (name.length < 2 || name.length > 60) return { error: "Informe o nome do entregador." };
+  const phone = normalizePhone(String(formData.get("phone") ?? ""));
+  if (!isValidPhone(phone)) return { error: "WhatsApp inválido. Use DDD + número, ex.: (11) 98888-7777." };
+  if ((await db.courier.count({ where: { storeId } })) >= 50) return { error: "Limite de 50 entregadores." };
+  await db.courier.create({ data: { storeId, name, phone, token: newCourierToken() } });
+  revalidatePath("/painel/entregadores");
+  return { ok: true };
+}
+
+export async function toggleCourier(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const courier = await db.courier.findFirst({ where: { id: String(formData.get("id")), storeId } });
+  if (!courier) return;
+  await db.courier.update({ where: { id: courier.id }, data: { active: !courier.active } });
+  revalidatePath("/painel/entregadores");
+}
+
+export async function deleteCourier(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.courier.deleteMany({ where: { id: String(formData.get("id")), storeId } });
+  revalidatePath("/painel/entregadores");
+}
+
+/** Troca o link do entregador (o antigo para de funcionar). Use se o celular dele for perdido. */
+export async function resetCourierLink(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.courier.updateMany({ where: { id: String(formData.get("id")), storeId }, data: { token: newCourierToken() } });
+  revalidatePath("/painel/entregadores");
+}
+
+/** Escolhe (ou tira) o entregador do pedido. */
+export async function assignCourier(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const orderId = String(formData.get("orderId"));
+  const courierId = String(formData.get("courierId") ?? "");
+  const courier = courierId ? await db.courier.findFirst({ where: { id: courierId, storeId } }) : null;
+  if (courierId && !courier) return;
+  await db.order.updateMany({
+    where: { id: orderId, storeId, fulfillment: "DELIVERY" },
+    data: { courierId: courier?.id ?? null, courierName: courier?.name ?? null },
+  });
+  revalidatePath("/painel");
 }
 
 // --- Bairros e taxas de entrega ---
