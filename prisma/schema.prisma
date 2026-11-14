@@ -254,6 +254,8 @@ model Customer {
   pinHash         String?           // PIN opcional para entrar em outro aparelho
   pinFailures     Int               @default(0)
   pinLockedUntil  DateTime?
+  loginCodeHash      String?   // código de acesso de uso único, enviado pela loja no WhatsApp
+  loginCodeExpiresAt DateTime?
   addresses       CustomerAddress[]
   orders          Order[]
   campaignSends   CampaignRecipient[]

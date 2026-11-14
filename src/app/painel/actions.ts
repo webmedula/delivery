@@ -8,7 +8,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { Prisma, type OrderStatus } from "@prisma/client";
 import { db } from "@/lib/db";
-import { requireStoreUser } from "@/lib/auth";
+import { hashPassword, requireStoreUser } from "@/lib/auth";
+import { randomInt } from "node:crypto";
 import { parseBRLToCents } from "@/lib/money";
 import { cancelStoreSubscription, subscribeStore } from "@/lib/billing";
 import { normalizeCouponCode } from "@/lib/discounts";
@@ -304,4 +305,26 @@ export async function updateOnlineMethods(_: PaymentAccountState, formData: Form
   if (!result.ok) return { error: result.error };
   revalidatePath("/painel/pagamentos");
   return { ok: true };
+}
+
+// --- Código de acesso do cliente (para entrar em "Minha conta" sem PIN) ---
+
+const LOGIN_CODE_MINUTES = 30;
+
+/** Gera um código de 6 números, válido por 30 minutos e uma única vez. Devolve o código para a loja enviar no WhatsApp. */
+export async function createCustomerLoginCode(customerId: string): Promise<{ code: string } | { error: string }> {
+  const { storeId } = await requireStoreUser();
+  const customer = await db.customer.findFirst({ where: { id: customerId, storeId } });
+  if (!customer) return { error: "Cliente não encontrado." };
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  await db.customer.update({
+    where: { id: customer.id },
+    data: {
+      loginCodeHash: await hashPassword(code),
+      loginCodeExpiresAt: new Date(Date.now() + LOGIN_CODE_MINUTES * 60_000),
+      pinFailures: 0,
+      pinLockedUntil: null,
+    },
+  });
+  return { code };
 }

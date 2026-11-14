@@ -7,6 +7,8 @@ import { formatPhone, whatsappLink } from "@/lib/phone";
 import { orderStatusLabel } from "@/lib/order-status";
 import { getLoyaltyStatus } from "@/lib/customers";
 import { optOutCustomer } from "../../campanhas/actions";
+import { LoginCodeButton } from "@/components/LoginCodeButton";
+import { storeUrl } from "@/lib/store-url";
 
 export const dynamic = "force-dynamic";
 const dateFmt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
@@ -40,6 +42,13 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
               <button className="text-sm text-red-600 hover:underline">Parar de enviar promoções</button>
             </form>
           )}
+          <LoginCodeButton
+            customerId={customer.id}
+            phone={customer.phone}
+            firstName={customer.name.split(" ")[0]}
+            storeName={store.name}
+            accountUrl={`${await storeUrl(store.slug)}/conta`}
+          />
           <a href={whatsappLink(customer.phone, `Olá, ${customer.name.split(" ")[0]}! Aqui é da ${store.name}.`)} target="_blank" className="btn">Chamar no WhatsApp</a>
         </div>
       </div>

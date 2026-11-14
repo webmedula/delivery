@@ -12,7 +12,7 @@ const nav = [
   { href: "/painel/promocoes", label: "Cupons" },
   { href: "/painel/campanhas", label: "Promoções" },
   { href: "/painel/loja", label: "Minha loja" },
-  { href: "/painel/pagamentos", label: "Pagamento online" },
+  { href: "/painel/pagamentos", label: "Pagamentos" },
   { href: "/painel/assinatura", label: "Assinatura" },
 ];
 
@@ -34,7 +34,7 @@ export default async function PainelLayout({ children }: { children: React.React
           <span className="flex items-center gap-2 font-bold text-brand-700"><LogoMark className="h-7 w-7" />{store.name}</span>
           <nav className="flex flex-wrap gap-1 text-sm">
             {nav.map((n) => (
-              <Link key={n.href} href={n.href} className="rounded-md px-3 py-1.5 text-stone-700 hover:bg-stone-100">
+              <Link key={n.href} href={n.href} className="rounded-md px-2.5 py-1.5 text-stone-700 hover:bg-stone-100">
                 {n.label}
               </Link>
             ))}

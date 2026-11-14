@@ -210,21 +210,32 @@ export type AccountState = { error?: string; ok?: boolean } | undefined;
 const MAX_PIN_FAILURES = 5;
 const LOCK_MINUTES = 15;
 
-/** Entrar em outro aparelho com telefone + PIN (criado na página "Minha conta"). */
+/**
+ * Entrar em outro aparelho com telefone + PIN (criado em "Minha conta")
+ * ou + código de acesso de uso único (a loja envia pelo WhatsApp, pelo painel).
+ * Os dois dividem o mesmo limite de tentativas.
+ */
 export async function customerLogin(_: AccountState, formData: FormData): Promise<AccountState> {
   const slug = String(formData.get("slug") ?? "");
   const phone = normalizePhone(String(formData.get("phone") ?? ""));
-  const pin = String(formData.get("pin") ?? "");
+  const secret = String(formData.get("pin") ?? "").replace(/\D/g, "");
   const store = await db.store.findUnique({ where: { slug } });
   if (!store) return { error: "Loja não encontrada." };
-  const generic = { error: "Telefone ou PIN incorretos. Se você nunca criou um PIN, faça um pedido e crie em \"Minha conta\"." };
+  const generic = {
+    error: "Telefone, PIN ou código incorretos. Se você ainda não criou um PIN, peça um código de acesso para a loja pelo WhatsApp.",
+  };
 
   const customer = isValidPhone(phone) ? await db.customer.findUnique({ where: { storeId_phone: { storeId: store.id, phone } } }) : null;
-  if (!customer?.pinHash) return generic;
+  if (!customer) return generic;
   if (customer.pinLockedUntil && customer.pinLockedUntil > new Date())
     return { error: `Muitas tentativas. Tente de novo em ${LOCK_MINUTES} minutos.` };
 
-  if (!(await verifyPassword(pin, customer.pinHash))) {
+  const codeValid = !!customer.loginCodeHash && !!customer.loginCodeExpiresAt && customer.loginCodeExpiresAt > new Date();
+  const byCode = codeValid && (await verifyPassword(secret, customer.loginCodeHash!));
+  const byPin = !byCode && !!customer.pinHash && (await verifyPassword(secret, customer.pinHash));
+
+  if (!byCode && !byPin) {
+    if (!customer.pinHash && !codeValid) return generic; // nada para adivinhar: não conta tentativa
     const failures = customer.pinFailures + 1;
     await db.customer.update({
       where: { id: customer.id },
@@ -234,7 +245,10 @@ export async function customerLogin(_: AccountState, formData: FormData): Promis
     });
     return generic;
   }
-  await db.customer.update({ where: { id: customer.id }, data: { pinFailures: 0, pinLockedUntil: null } });
+  await db.customer.update({
+    where: { id: customer.id },
+    data: { pinFailures: 0, pinLockedUntil: null, ...(byCode ? { loginCodeHash: null, loginCodeExpiresAt: null } : {}) },
+  });
   await setCustomerSession(store.id, customer.id);
   revalidatePath(`/loja/${slug}`, "layout");
   return { ok: true };
