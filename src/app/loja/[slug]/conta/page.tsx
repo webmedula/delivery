@@ -29,10 +29,10 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
         {back}
         <h1 className="text-2xl font-bold">Minha conta · {store.name}</h1>
         <div className="card space-y-2 text-sm text-stone-700">
-          <p><strong>Primeira vez aqui?</strong> Não precisa de cadastro: faça seu pedido informando seu WhatsApp e sua conta é criada na hora, neste aparelho.</p>
+          <p><strong>Primeira vez aqui?</strong> Não precisa de cadastro nem senha: faça seu pedido informando seu WhatsApp e a conta é criada na hora, já entrando neste aparelho.</p>
           <p>Com a conta você guarda seus endereços, vê seus pedidos, pede de novo com um toque{store.loyaltyEnabled ? " e junta selos de fidelidade" : ""}.</p>
         </div>
-        <CustomerLoginForm slug={slug} />
+        <CustomerLoginForm slug={slug} storeWhatsapp={store.whatsapp} />
       </main>
     );
   }

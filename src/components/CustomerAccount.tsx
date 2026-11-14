@@ -5,19 +5,27 @@ import { useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { customerLogin, setCustomerPin, updateCustomerProfile } from "@/app/loja/[slug]/actions";
 
-export function CustomerLoginForm({ slug }: { slug: string }) {
+export function CustomerLoginForm({ slug, storeWhatsapp }: { slug: string; storeWhatsapp: string | null }) {
   const [state, action, pending] = useActionState(customerLogin, undefined);
+  const askCode = storeWhatsapp
+    ? `https://wa.me/${storeWhatsapp}?text=${encodeURIComponent("Olá! Quero um código de acesso para entrar na minha conta do cardápio.")}`
+    : null;
   return (
     <form onSubmit={keepOnSubmit(action)} className="card space-y-3">
       <input type="hidden" name="slug" value={slug} />
-      <h2 className="font-semibold">Entrar com seu PIN</h2>
+      <h2 className="font-semibold">Já pediu aqui? Entre na sua conta</h2>
       <p className="text-sm text-stone-600">
-        Já pediu aqui e criou um PIN? Entre para ver seus pedidos, endereços e selos de fidelidade.
+        Use o <strong>PIN</strong> que você criou em &quot;Minha conta&quot; ou um <strong>código de acesso</strong> enviado pela loja no WhatsApp.
       </p>
-      <input name="phone" placeholder="WhatsApp com DDD" className="input" inputMode="tel" required />
-      <input name="pin" placeholder="PIN (4 a 6 números)" className="input" inputMode="numeric" type="password" maxLength={6} required />
+      <input name="phone" placeholder="WhatsApp com DDD" className="input" inputMode="tel" autoComplete="tel" required />
+      <input name="pin" placeholder="PIN ou código de acesso" className="input" inputMode="numeric" type="password" maxLength={6} autoComplete="one-time-code" required />
       {state?.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button className="btn w-full" disabled={pending}>{pending ? "Entrando..." : "Entrar"}</button>
+      {askCode && (
+        <a href={askCode} target="_blank" rel="noopener" className="block text-center text-sm text-brand-700 underline">
+          Não tenho PIN: pedir código para a loja no WhatsApp
+        </a>
+      )}
     </form>
   );
 }

@@ -7,6 +7,7 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { PixPayment } from "@/components/PixPayment";
 import { getPixQrCode, syncOrderPayment } from "@/lib/payments";
 import { cancelUnpaidOrder } from "../../actions";
+import { getSessionCustomer } from "@/lib/customers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,8 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
     order = (await db.order.findFirst({ where: { id }, include: { items: true, store: true } }))!;
   }
   const { store } = order;
+  const me = await getSessionCustomer(store.id);
+  const suggestPin = !!me && me.id === order.customerId && !me.pinHash;
   const awaiting = order.paymentStatus === "AWAITING" && order.status !== "CANCELED";
   const pix = awaiting && order.paymentMethod === "ONLINE_PIX" ? await getPixQrCode(order) : null;
 
@@ -82,7 +85,14 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
         </a>
       )}
       <Link href={`/loja/${slug}`} className="btn-ghost w-full">Voltar ao cardápio</Link>
-      <Link href={`/loja/${slug}/conta`} className="block text-center text-sm text-brand-700">Ver meus pedidos e selos</Link>
+      {suggestPin ? (
+        <Link href={`/loja/${slug}/conta`} className="card block space-y-1 border-brand-100 bg-brand-50 text-sm text-brand-700">
+          <strong className="block">Sua conta foi criada neste aparelho ✓</strong>
+          Crie um PIN em &quot;Minha conta&quot; para acompanhar seus pedidos também em outro celular ou computador.
+        </Link>
+      ) : (
+        <Link href={`/loja/${slug}/conta`} className="block text-center text-sm text-brand-700">Ver meus pedidos e selos</Link>
+      )}
     </main>
   );
 }
