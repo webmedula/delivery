@@ -6,11 +6,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import type { OrderStatus } from "@prisma/client";
+import { Prisma, type OrderStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireStoreUser } from "@/lib/auth";
 import { parseBRLToCents } from "@/lib/money";
 import { cancelStoreSubscription, subscribeStore } from "@/lib/billing";
+import { normalizeCouponCode } from "@/lib/discounts";
 
 const ORDER_STATUSES: OrderStatus[] = [
   "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED", "CANCELED",
@@ -151,4 +152,92 @@ export async function cancelSubscription(_: BillingState, _formData: FormData): 
   const result = await cancelStoreSubscription(storeId);
   revalidatePath("/painel", "layout");
   return result.ok ? { ok: true } : { error: result.error };
+}
+
+// --- Cupons e fidelidade ---
+
+export type PromoState = { error?: string; ok?: boolean } | undefined;
+
+function parseDiscount(type: string, raw: string): { type: "PERCENT" | "FIXED"; value: number } | { error: string } {
+  if (type === "PERCENT") {
+    const value = Number(raw.replace(",", "."));
+    if (!Number.isInteger(value) || value < 1 || value > 100) return { error: "A porcentagem deve ser um número inteiro de 1 a 100." };
+    return { type, value };
+  }
+  const value = parseBRLToCents(raw);
+  if (!value) return { error: "Informe o valor do desconto em reais." };
+  return { type: "FIXED", value };
+}
+
+export async function createCoupon(_: PromoState, formData: FormData): Promise<PromoState> {
+  const { storeId } = await requireStoreUser();
+  const get = (k: string) => String(formData.get(k) ?? "").trim();
+  const code = normalizeCouponCode(get("code"));
+  if (!/^[A-Z0-9_-]{3,20}$/.test(code)) return { error: "O código deve ter de 3 a 20 letras ou números, sem espaços." };
+  const discount = parseDiscount(get("type"), get("value"));
+  if ("error" in discount) return discount;
+  const minOrderCents = parseBRLToCents(get("minOrder") || "0");
+  if (minOrderCents === null) return { error: "Pedido mínimo inválido." };
+  const maxUses = Number(get("maxUses") || "0");
+  if (!Number.isInteger(maxUses) || maxUses < 0) return { error: "Limite de usos inválido." };
+  let expiresAt: Date | null = null;
+  if (get("expiresAt")) {
+    // Vale até o fim do dia escolhido, no horário de Brasília.
+    expiresAt = new Date(`${get("expiresAt")}T23:59:59-03:00`);
+    if (Number.isNaN(expiresAt.getTime())) return { error: "Data de validade inválida." };
+  }
+  try {
+    await db.coupon.create({
+      data: {
+        storeId, code, ...discount, minOrderCents, maxUses, expiresAt,
+        oncePerCustomer: formData.get("oncePerCustomer") === "on",
+        firstOrderOnly: formData.get("firstOrderOnly") === "on",
+      },
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { error: "Já existe um cupom com esse código." };
+    throw e;
+  }
+  revalidatePath("/painel/promocoes");
+  return { ok: true };
+}
+
+export async function toggleCoupon(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const coupon = await db.coupon.findFirst({ where: { id: String(formData.get("id")), storeId } });
+  if (!coupon) return;
+  await db.coupon.update({ where: { id: coupon.id }, data: { active: !coupon.active } });
+  revalidatePath("/painel/promocoes");
+}
+
+export async function deleteCoupon(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  // Pedidos antigos guardam uma cópia do código, então apagar não perde o histórico.
+  await db.coupon.deleteMany({ where: { id: String(formData.get("id")), storeId } });
+  revalidatePath("/painel/promocoes");
+}
+
+export async function updateLoyalty(_: PromoState, formData: FormData): Promise<PromoState> {
+  const { storeId } = await requireStoreUser();
+  const get = (k: string) => String(formData.get(k) ?? "").trim();
+  const enabled = formData.get("loyaltyEnabled") === "on";
+  const ordersRequired = Number(get("ordersRequired"));
+  if (!Number.isInteger(ordersRequired) || ordersRequired < 2 || ordersRequired > 50)
+    return { error: "O número de pedidos deve ser de 2 a 50." };
+  const discount = parseDiscount(get("type"), get("value"));
+  if ("error" in discount) return discount;
+  const minOrderCents = parseBRLToCents(get("minOrder") || "0");
+  if (minOrderCents === null) return { error: "Valor mínimo inválido." };
+  await db.store.update({
+    where: { id: storeId },
+    data: {
+      loyaltyEnabled: enabled,
+      loyaltyOrdersRequired: ordersRequired,
+      loyaltyRewardType: discount.type,
+      loyaltyRewardValue: discount.value,
+      loyaltyMinOrderCents: minOrderCents,
+    },
+  });
+  revalidatePath("/painel", "layout");
+  return { ok: true };
 }

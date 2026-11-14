@@ -39,6 +39,11 @@ enum FulfillmentType {
   PICKUP
 }
 
+enum DiscountType {
+  PERCENT // valor = porcentagem (1 a 100)
+  FIXED   // valor = centavos
+}
+
 enum PaymentMethod {
   PIX
   CASH
@@ -85,7 +90,16 @@ model Store {
   blockedAt          DateTime?
   blockedReason      String?
 
+  // Programa de fidelidade: a cada N pedidos concluídos, o cliente ganha um desconto.
+  loyaltyEnabled        Boolean      @default(false)
+  loyaltyOrdersRequired Int          @default(10)
+  loyaltyRewardType     DiscountType @default(PERCENT)
+  loyaltyRewardValue    Int          @default(10)
+  loyaltyMinOrderCents  Int          @default(0) // subtotal mínimo para o pedido contar selo
+
   users              User[]
+  customers          Customer[]
+  coupons            Coupon[]
   categories         Category[]
   products           Product[]
   orders             Order[]
@@ -144,12 +158,19 @@ model Order {
   fulfillment      FulfillmentType
   paymentMethod    PaymentMethod
   changeForCents   Int?            // troco para (dinheiro)
+  customerId       String?
+  customer         Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
   customerName     String
   customerPhone    String
   address          String?
   notes            String?
   subtotalCents    Int
   deliveryFeeCents Int
+  discountCents    Int             @default(0)
+  couponId         String?
+  coupon           Coupon?         @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponCode       String?         // cópia do código no momento do pedido
+  loyaltyReward    Boolean         @default(false) // usou a recompensa de fidelidade
   totalCents       Int
   items            OrderItem[]
   createdAt        DateTime        @default(now())
@@ -157,6 +178,8 @@ model Order {
 
   @@unique([storeId, number])
   @@index([storeId, createdAt])
+  @@index([customerId])
+  @@index([couponId])
 }
 
 model OrderItem {
@@ -189,4 +212,54 @@ model AdminLog {
   createdAt  DateTime @default(now())
 
   @@index([storeId, createdAt])
+}
+
+// Cliente final de uma loja. Cada loja tem a sua base de clientes (o mesmo
+// telefone em duas lojas são dois registros). Identificado pelo telefone.
+model Customer {
+  id              String            @id @default(cuid())
+  storeId         String
+  store           Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  phone           String            // só dígitos, com DDD e sem o 55: 11999999999
+  name            String
+  marketingOptIn  Boolean           @default(false) // aceitou receber promoções
+  pinHash         String?           // PIN opcional para entrar em outro aparelho
+  pinFailures     Int               @default(0)
+  pinLockedUntil  DateTime?
+  addresses       CustomerAddress[]
+  orders          Order[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([storeId, phone])
+}
+
+model CustomerAddress {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  address    String
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@unique([customerId, address])
+}
+
+model Coupon {
+  id               String       @id @default(cuid())
+  storeId          String
+  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  code             String       // sempre em maiúsculas
+  type             DiscountType
+  value            Int
+  minOrderCents    Int          @default(0)
+  maxUses          Int          @default(0) // 0 = ilimitado
+  oncePerCustomer  Boolean      @default(true)
+  firstOrderOnly   Boolean      @default(false)
+  expiresAt        DateTime?
+  active           Boolean      @default(true)
+  orders           Order[]
+  createdAt        DateTime     @default(now())
+
+  @@unique([storeId, code])
 }

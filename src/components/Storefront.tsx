@@ -1,18 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatBRL } from "@/lib/money";
-import { placeOrder } from "@/app/loja/[slug]/actions";
+import { placeOrder, previewCoupon } from "@/app/loja/[slug]/actions";
 
 type Product = { id: string; name: string; description: string | null; priceCents: number; imageUrl: string | null };
 type Section = { id: string; name: string; products: Product[] };
 type StoreInfo = {
   slug: string; name: string; description: string | null; address: string | null;
   deliveryFeeCents: number; minOrderCents: number; acceptsDelivery: boolean; acceptsPickup: boolean; accepting: boolean;
+  /** Texto do programa de fidelidade, ex.: "A cada 10 pedidos, ganhe 10% de desconto". */
+  loyalty: string | null;
+  /** Desconto da recompensa de fidelidade, para calcular o total na sacola. */
+  reward: { type: "PERCENT" | "FIXED"; value: number } | null;
+};
+export type CustomerInfo = {
+  name: string;
+  phone: string; // formatado
+  marketingOptIn: boolean;
+  addresses: { id: string; address: string }[];
+  loyalty: { stamps: number; ordersRequired: number; rewardAvailable: boolean } | null;
 };
 
-export function Storefront({ store, sections }: { store: StoreInfo; sections: Section[] }) {
+function rewardCents(subtotal: number, r: StoreInfo["reward"]) {
+  if (!r) return 0;
+  return Math.min(subtotal, r.type === "PERCENT" ? Math.round((subtotal * r.value) / 100) : r.value);
+}
+
+export function Storefront({ store, sections, customer }: { store: StoreInfo; sections: Section[]; customer: CustomerInfo | null }) {
   const router = useRouter();
   const storageKey = `cart:${store.slug}`;
   const [cart, setCart] = useState<Record<string, number>>({});
@@ -21,12 +38,24 @@ export function Storefront({ store, sections }: { store: StoreInfo; sections: Se
   const [payment, setPayment] = useState<"PIX" | "CASH" | "CARD_ON_DELIVERY">("PIX");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [addressChoice, setAddressChoice] = useState<string>(customer?.addresses[0]?.id ?? "new");
+  const [useReward, setUseReward] = useState(!!customer?.loyalty?.rewardAvailable);
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discountCents: number } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [phone, setPhone] = useState(customer?.phone ?? "");
+  const [checkingCoupon, startCouponCheck] = useTransition();
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) setCart(JSON.parse(saved));
     } catch {}
+    // "Pedir de novo" (página Minha conta) monta a sacola e abre com ?sacola=1
+    if (new URLSearchParams(window.location.search).get("sacola") === "1") {
+      setCheckout(true);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }, [storageKey]);
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(cart)); } catch {}
@@ -37,6 +66,22 @@ export function Storefront({ store, sections }: { store: StoreInfo; sections: Se
   const subtotal = lines.reduce((s, l) => s + l.product.priceCents * l.quantity, 0);
   const fee = fulfillment === "DELIVERY" ? store.deliveryFeeCents : 0;
   const count = lines.reduce((s, l) => s + l.quantity, 0);
+  const rewardActive = useReward && !!customer?.loyalty?.rewardAvailable;
+  // O desconto do cupom é recalculado no servidor; aqui só mostramos a prévia.
+  const discount = rewardActive ? rewardCents(subtotal, store.reward) : coupon ? Math.min(subtotal, coupon.discountCents) : 0;
+
+  // Se a sacola mudar depois de aplicar o cupom, peça para aplicar de novo.
+  const subtotalKey = subtotal;
+  useEffect(() => { setCoupon(null); }, [subtotalKey]);
+
+  function applyCoupon() {
+    setCouponError(null);
+    startCouponCheck(async () => {
+      const r = await previewCoupon(store.slug, couponInput, subtotal, phone);
+      if (r.ok) setCoupon({ code: r.code, discountCents: r.discountCents });
+      else { setCoupon(null); setCouponError(r.error); }
+    });
+  }
 
   const add = (id: string, delta: number) =>
     setCart((c) => ({ ...c, [id]: Math.max(0, Math.min(99, (c[id] ?? 0) + delta)) }));
@@ -48,12 +93,17 @@ export function Storefront({ store, sections }: { store: StoreInfo; sections: Se
         slug: store.slug,
         cart: lines.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
         customerName: String(form.get("customerName") ?? ""),
-        customerPhone: String(form.get("customerPhone") ?? ""),
+        customerPhone: phone,
         fulfillment,
-        address: String(form.get("address") ?? "") || undefined,
+        address:
+          (addressChoice !== "new" ? customer?.addresses.find((a) => a.id === addressChoice)?.address : String(form.get("address") ?? "")) ||
+          undefined,
         paymentMethod: payment,
         changeFor: String(form.get("changeFor") ?? "") || undefined,
         notes: String(form.get("notes") ?? "") || undefined,
+        useReward: rewardActive,
+        couponCode: !rewardActive && coupon ? coupon.code : undefined,
+        marketingOptIn: form.get("marketingOptIn") === "on",
       });
       if (!result.ok) return setError(result.error);
       setCart({});
@@ -64,7 +114,12 @@ export function Storefront({ store, sections }: { store: StoreInfo; sections: Se
   return (
     <div className="mx-auto min-h-screen max-w-2xl pb-28">
       <header className="bg-brand-600 px-4 pb-6 pt-8 text-white">
-        <h1 className="text-2xl font-bold">{store.name}</h1>
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="text-2xl font-bold">{store.name}</h1>
+          <Link href={`/loja/${store.slug}/conta`} className="flex-none rounded-full bg-white/15 px-3 py-1 text-sm font-medium hover:bg-white/25">
+            {customer ? `Olá, ${customer.name.split(" ")[0]}` : "Minha conta"}
+          </Link>
+        </div>
         {store.description && <p className="mt-1 text-brand-50">{store.description}</p>}
         <p className="mt-3 text-sm text-brand-100">
           {store.accepting ? "Aberto agora" : "Fechado no momento"}
@@ -72,6 +127,22 @@ export function Storefront({ store, sections }: { store: StoreInfo; sections: Se
           {store.minOrderCents > 0 && ` · Mínimo ${formatBRL(store.minOrderCents)}`}
         </p>
       </header>
+
+      {store.loyalty && (
+        <Link href={`/loja/${store.slug}/conta`} className="mx-4 mt-4 flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-700">
+          <span className="text-xl" aria-hidden>★</span>
+          <span className="flex-1">
+            <strong>Programa de fidelidade:</strong> {store.loyalty}.
+            {customer?.loyalty && (
+              <span className="block text-brand-600">
+                {customer.loyalty.rewardAvailable
+                  ? "Você já ganhou a sua recompensa! Use no próximo pedido."
+                  : `Seus selos: ${customer.loyalty.stamps} de ${customer.loyalty.ordersRequired}.`}
+              </span>
+            )}
+          </span>
+        </Link>
+      )}
 
       {sections.length === 0 && <p className="p-6 text-center text-stone-500">O cardápio ainda está sendo montado.</p>}
 
@@ -144,9 +215,41 @@ export function Storefront({ store, sections }: { store: StoreInfo; sections: Se
             </div>
             {fulfillment === "PICKUP" && store.address && <p className="text-sm text-stone-600">Retirada em: {store.address}</p>}
 
-            <input name="customerName" placeholder="Seu nome" className="input" required />
-            <input name="customerPhone" placeholder="WhatsApp / telefone" className="input" inputMode="tel" required />
-            {fulfillment === "DELIVERY" && <textarea name="address" placeholder="Endereço completo (rua, número, bairro, referência)" className="input" rows={2} required />}
+            <input name="customerName" placeholder="Seu nome" className="input" defaultValue={customer?.name} required />
+            {customer ? (
+              <p className="text-sm text-stone-600">
+                WhatsApp: <strong>{customer.phone}</strong>{" "}
+                <Link href={`/loja/${store.slug}/conta`} className="text-brand-700 underline">Não é você?</Link>
+              </p>
+            ) : (
+              <input
+                name="customerPhone"
+                placeholder="WhatsApp com DDD"
+                className="input"
+                inputMode="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+              />
+            )}
+            {fulfillment === "DELIVERY" && customer && customer.addresses.length > 0 && (
+              <fieldset className="space-y-2">
+                <legend className="label">Endereço de entrega</legend>
+                {customer.addresses.map((a) => (
+                  <label key={a.id} className="flex items-start gap-2 rounded-lg border border-stone-200 p-2 text-sm has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                    <input type="radio" name="addressChoice" className="mt-1" checked={addressChoice === a.id} onChange={() => setAddressChoice(a.id)} />
+                    <span>{a.address}</span>
+                  </label>
+                ))}
+                <label className="flex items-center gap-2 rounded-lg border border-stone-200 p-2 text-sm has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                  <input type="radio" name="addressChoice" checked={addressChoice === "new"} onChange={() => setAddressChoice("new")} />
+                  <span>Outro endereço</span>
+                </label>
+              </fieldset>
+            )}
+            {fulfillment === "DELIVERY" && (addressChoice === "new" || !customer?.addresses.length) && (
+              <textarea name="address" placeholder="Endereço completo (rua, número, bairro, referência)" className="input" rows={2} required />
+            )}
 
             <div>
               <p className="label">Pagamento</p>
@@ -159,10 +262,44 @@ export function Storefront({ store, sections }: { store: StoreInfo; sections: Se
             {payment === "CASH" && <input name="changeFor" placeholder="Troco para quanto? (opcional)" className="input" inputMode="decimal" />}
             <textarea name="notes" placeholder="Observações (opcional)" className="input" rows={2} />
 
+            {customer?.loyalty?.rewardAvailable && store.reward && (
+              <label className="flex items-center gap-2 rounded-lg border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700">
+                <input type="checkbox" checked={useReward} onChange={(e) => setUseReward(e.target.checked)} />
+                <span>★ Usar minha recompensa de fidelidade neste pedido</span>
+              </label>
+            )}
+            {!rewardActive && (
+              <div>
+                <div className="flex gap-2">
+                  <input
+                    placeholder="Cupom de desconto"
+                    className="input uppercase"
+                    value={couponInput}
+                    onChange={(e) => { setCouponInput(e.target.value); setCoupon(null); setCouponError(null); }}
+                  />
+                  <button type="button" className="btn-ghost" onClick={applyCoupon} disabled={checkingCoupon || !couponInput.trim()}>
+                    {checkingCoupon ? "..." : "Aplicar"}
+                  </button>
+                </div>
+                {coupon && <p className="mt-1 text-sm text-green-700">Cupom {coupon.code} aplicado.</p>}
+                {couponError && <p className="mt-1 text-sm text-red-600">{couponError}</p>}
+              </div>
+            )}
+            {!customer?.marketingOptIn && (
+              <label className="flex items-center gap-2 text-sm text-stone-600">
+                <input type="checkbox" name="marketingOptIn" /> Quero receber promoções da loja pelo WhatsApp
+              </label>
+            )}
+
             <div className="space-y-1 border-t border-stone-100 pt-3 text-sm">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatBRL(subtotal)}</span></div>
               {fulfillment === "DELIVERY" && <div className="flex justify-between"><span>Entrega</span><span>{formatBRL(fee)}</span></div>}
-              <div className="flex justify-between text-base font-semibold"><span>Total</span><span>{formatBRL(subtotal + fee)}</span></div>
+              {discount > 0 && (
+                <div className="flex justify-between text-green-700">
+                  <span>{rewardActive ? "Recompensa de fidelidade" : `Cupom ${coupon?.code}`}</span><span>−{formatBRL(discount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-base font-semibold"><span>Total</span><span>{formatBRL(subtotal - discount + fee)}</span></div>
               {subtotal < store.minOrderCents && <p className="text-red-600">Pedido mínimo: {formatBRL(store.minOrderCents)}</p>}
             </div>
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
