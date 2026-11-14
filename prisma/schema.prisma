@@ -45,9 +45,21 @@ enum DiscountType {
 }
 
 enum PaymentMethod {
-  PIX
+  PIX              // Pix pela chave da loja (conferência manual)
   CASH
   CARD_ON_DELIVERY
+  ONLINE_PIX       // Pix pago no cardápio, pela subconta Asaas da loja
+  ONLINE_CARD      // cartão de crédito pago no cardápio, pela subconta Asaas da loja
+}
+
+// Situação do pagamento online do pedido. Pedidos pagos na entrega ficam NONE.
+enum PaymentStatus {
+  NONE
+  AWAITING  // cobrança gerada, esperando o cliente pagar
+  PAID
+  EXPIRED   // venceu sem pagamento (o pedido é cancelado)
+  REFUNDED
+  FAILED    // não deu para gerar a cobrança
 }
 
 model Plan {
@@ -96,6 +108,15 @@ model Store {
   loyaltyRewardType     DiscountType @default(PERCENT)
   loyaltyRewardValue    Int          @default(10)
   loyaltyMinOrderCents  Int          @default(0) // subtotal mínimo para o pedido contar selo
+
+  // Pagamento online: cada loja tem a própria subconta no Asaas, criada pela
+  // plataforma. O dinheiro cai direto nela; a WebTenda não fica com nada.
+  asaasAccountId        String?   @unique
+  asaasWalletId         String?
+  asaasApiKeyEnc        String?   // chave da subconta, criptografada (lib/secret-box)
+  asaasAccountStatus    String?   // situação geral no Asaas: PENDING, AWAITING_APPROVAL, APPROVED, REJECTED
+  onlinePixEnabled      Boolean   @default(false)
+  onlineCardEnabled     Boolean   @default(false)
 
   users              User[]
   customers          Customer[]
@@ -172,6 +193,10 @@ model Order {
   couponCode       String?         // cópia do código no momento do pedido
   loyaltyReward    Boolean         @default(false) // usou a recompensa de fidelidade
   totalCents       Int
+  paymentStatus    PaymentStatus   @default(NONE)
+  paymentId        String?         @unique // cobrança no Asaas (pay_...)
+  paymentUrl       String?         // fatura do Asaas (usada para pagar com cartão)
+  paidAt           DateTime?
   items            OrderItem[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -223,6 +248,8 @@ model Customer {
   phone           String            // só dígitos, com DDD e sem o 55: 11999999999
   name            String
   marketingOptIn  Boolean           @default(false) // aceitou receber promoções
+  cpfCnpj         String?           // informado ao pagar online (o Asaas exige)
+  asaasCustomerId String?           // cliente na subconta Asaas da loja
   pinHash         String?           // PIN opcional para entrar em outro aparelho
   pinFailures     Int               @default(0)
   pinLockedUntil  DateTime?

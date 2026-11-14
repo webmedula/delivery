@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireStoreUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
-import { orderStatusLabel, paymentLabel } from "@/lib/order-status";
+import { orderStatusLabel, paymentLabel, paymentStatusLabel } from "@/lib/order-status";
 import { updateOrderStatus } from "./actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { formatPhone } from "@/lib/phone";
@@ -16,16 +16,22 @@ export default async function OrdersPage() {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [open, today] = await Promise.all([
+  const [open, today, awaiting] = await Promise.all([
     db.order.findMany({
-      where: { storeId, status: { in: [...OPEN] } },
+      where: { storeId, status: { in: [...OPEN] }, paymentStatus: { not: "AWAITING" } },
       include: { items: true },
       orderBy: { createdAt: "asc" },
     }),
     db.order.aggregate({
-      where: { storeId, createdAt: { gte: startOfDay }, status: { not: "CANCELED" } },
+      where: { storeId, createdAt: { gte: startOfDay }, status: { not: "CANCELED" }, paymentStatus: { not: "AWAITING" } },
       _count: true,
       _sum: { totalCents: true },
+    }),
+    // Pedidos pagos online que o cliente ainda não pagou: não preparar ainda.
+    db.order.findMany({
+      where: { storeId, status: { not: "CANCELED" }, paymentStatus: "AWAITING" },
+      select: { id: true, number: true, customerName: true, totalCents: true, paymentMethod: true },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
@@ -69,6 +75,11 @@ export default async function OrdersPage() {
               <p className="text-stone-600">
                 {paymentLabel[o.paymentMethod]}
                 {o.changeForCents ? ` (troco para ${formatBRL(o.changeForCents)})` : ""}
+                {o.paymentStatus !== "NONE" && (
+                  <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-medium ${o.paymentStatus === "PAID" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+                    {o.paymentStatus === "PAID" ? "✓ " : ""}{paymentStatusLabel[o.paymentStatus]}
+                  </span>
+                )}
               </p>
             </div>
             <ul className="border-t border-stone-100 pt-2 text-sm">
@@ -92,9 +103,23 @@ export default async function OrdersPage() {
               </select>
               <button className="btn">Salvar</button>
             </form>
+            {o.paymentStatus === "PAID" && (
+              <p className="text-xs text-stone-500">Pago online. Se precisar cancelar, faça o estorno no app do Asaas.</p>
+            )}
           </div>
         ))}
       </div>
+      {awaiting.length > 0 && (
+        <div className="card text-sm">
+          <p className="font-medium">Aguardando pagamento online ({awaiting.length})</p>
+          <p className="text-stone-500">Ainda não prepare. O pedido entra na lista acima assim que o pagamento for confirmado.</p>
+          <ul className="mt-2 space-y-1 text-stone-700">
+            {awaiting.map((o) => (
+              <li key={o.id}>#{o.number} · {o.customerName} · {formatBRL(o.totalCents)} · {paymentLabel[o.paymentMethod]}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

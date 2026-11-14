@@ -11,6 +11,7 @@ const nav = [
   { href: "/painel/clientes", label: "Clientes" },
   { href: "/painel/promocoes", label: "Cupons e fidelidade" },
   { href: "/painel/loja", label: "Minha loja" },
+  { href: "/painel/pagamentos", label: "Pagamento online" },
   { href: "/painel/assinatura", label: "Assinatura" },
 ];
 

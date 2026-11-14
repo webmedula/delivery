@@ -14,6 +14,7 @@ SaaS de cardápio digital e pedidos para pequenos negócios locais, cobrado por 
 - **Planos e assinatura:** limites de produtos e de pedidos/mês por plano; a loja é bloqueada quando o teste vence, com 3 dias de tolerância em atraso (`src/lib/subscription.ts`).
 - O preço do pedido é sempre recalculado no servidor (`src/lib/order-calc.ts`).
 - **Cobrança recorrente pelo Asaas** (Pix, boleto ou cartão): o lojista assina em Painel > Assinatura, paga a fatura do Asaas, e o webhook `/api/billing/webhook` ativa, marca atraso ou cancela a loja (`src/lib/billing.ts`, `src/lib/billing-events.ts`).
+- **Pagamento online dos pedidos** (Pix e cartão de crédito), sem comissão da plataforma: cada loja abre a própria subconta Asaas em Painel > Pagamento online; o cliente paga no cardápio (QR Code Pix na tela, cartão na página segura do Asaas) e o pedido só aparece para a loja depois de pago. Webhook `/api/payments/webhook` + consulta direta como reserva (`src/lib/payments.ts`, `src/lib/payment-events.ts`).
 - **Área de administração** em `/admin` (e-mails de `ADMIN_EMAILS`): visão geral, lojas, usuários, bloquear/liberar, trocar plano, redefinir senha, entrar no painel de uma loja como suporte e histórico das ações.
 - **Deploy em VPS com CyberPanel** via Docker: veja [deploy/README.md](deploy/README.md).
 
