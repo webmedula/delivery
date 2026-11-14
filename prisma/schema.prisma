@@ -102,6 +102,10 @@ model Store {
   blockedAt          DateTime?
   blockedReason      String?
 
+  // Loja de demonstração (prisma/demo.ts): não cobra assinatura, não liga
+  // pagamento online e fica fora dos números da administração.
+  isDemo             Boolean            @default(false)
+
   // Programa de fidelidade: a cada N pedidos concluídos, o cliente ganha um desconto.
   loyaltyEnabled        Boolean      @default(false)
   loyaltyOrdersRequired Int          @default(10)

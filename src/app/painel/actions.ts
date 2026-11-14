@@ -18,6 +18,8 @@ import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
 import { asaasSandbox } from "@/lib/asaas";
 import { canEnableOnlinePayments } from "@/lib/payment-events";
 
+const DEMO_BLOCKED = "Esta é uma loja de demonstração: assinatura e pagamento online ficam desligados.";
+
 const ORDER_STATUSES: OrderStatus[] = [
   "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED", "CANCELED",
 ];
@@ -144,7 +146,8 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
 export type BillingState = { error?: string; ok?: boolean } | undefined;
 
 export async function subscribe(_: BillingState, formData: FormData): Promise<BillingState> {
-  const { storeId } = await requireStoreUser();
+  const { storeId, store } = await requireStoreUser();
+  if (store.isDemo) return { error: DEMO_BLOCKED };
   const result = await subscribeStore(storeId, String(formData.get("planCode") ?? ""), String(formData.get("cpfCnpj") ?? ""));
   if (!result.ok) return { error: result.error };
   revalidatePath("/painel", "layout");
@@ -153,7 +156,8 @@ export async function subscribe(_: BillingState, formData: FormData): Promise<Bi
 }
 
 export async function cancelSubscription(_: BillingState, _formData: FormData): Promise<BillingState> {
-  const { storeId } = await requireStoreUser();
+  const { storeId, store } = await requireStoreUser();
+  if (store.isDemo) return { error: DEMO_BLOCKED };
   const result = await cancelStoreSubscription(storeId);
   revalidatePath("/painel", "layout");
   return result.ok ? { ok: true } : { error: result.error };
@@ -254,7 +258,8 @@ export type PaymentAccountState = { error?: string; ok?: boolean } | undefined;
 const COMPANY_TYPES = ["MEI", "LIMITED", "INDIVIDUAL", "ASSOCIATION"] as const;
 
 export async function createPaymentAccount(_: PaymentAccountState, formData: FormData): Promise<PaymentAccountState> {
-  const { storeId, user } = await requireStoreUser();
+  const { storeId, store, user } = await requireStoreUser();
+  if (store.isDemo) return { error: DEMO_BLOCKED };
   const get = (k: string) => String(formData.get(k) ?? "").trim();
 
   const cpfCnpj = normalizeCpfCnpj(get("cpfCnpj"));
@@ -297,6 +302,7 @@ export async function createPaymentAccount(_: PaymentAccountState, formData: For
 
 export async function updateOnlineMethods(_: PaymentAccountState, formData: FormData): Promise<PaymentAccountState> {
   const { store } = await requireStoreUser();
+  if (store.isDemo) return { error: DEMO_BLOCKED };
   const pix = formData.get("pix") === "on";
   const card = formData.get("card") === "on";
   if ((pix || card) && !canEnableOnlinePayments(store, asaasSandbox()))

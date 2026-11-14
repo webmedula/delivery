@@ -3,6 +3,7 @@ import { asaasConfigured, asaasSandbox } from "@/lib/asaas";
 import { refreshAccount } from "@/lib/payments";
 import { accountStatusLabel, canEnableOnlinePayments } from "@/lib/payment-events";
 import { OnlineMethodsForm, PaymentAccountForm } from "@/components/PaymentForms";
+import { DemoNotice } from "@/components/DemoNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,13 @@ function Status({ value }: { value: string }) {
 
 export default async function PaymentsPage() {
   const { store, user } = await requireStoreUser();
+  if (store.isDemo)
+    return (
+      <DemoNotice
+        title="Pagamento online"
+        text="Numa loja de verdade, aqui o lojista cria a própria conta de recebimento no Asaas e liga Pix e cartão de crédito direto no cardápio, sem comissão da WebTenda. Nas lojas de demonstração isso fica desligado para nenhuma cobrança real ser gerada."
+      />
+    );
   const configured = asaasConfigured();
   const sandbox = asaasSandbox();
   const overview = store.asaasAccountId ? await refreshAccount(store) : null;

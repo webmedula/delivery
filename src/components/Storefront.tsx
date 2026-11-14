@@ -17,6 +17,8 @@ type StoreInfo = {
   reward: { type: "PERCENT" | "FIXED"; value: number } | null;
   /** Formas de pagamento online (Asaas) ligadas pela loja. */
   online: { pix: boolean; card: boolean };
+  /** Loja de demonstração da WebTenda: mostra um aviso no topo. */
+  demo?: boolean;
 };
 type Payment = "ONLINE_PIX" | "ONLINE_CARD" | "PIX" | "CASH" | "CARD_ON_DELIVERY";
 export type CustomerInfo = {
@@ -126,6 +128,12 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
 
   return (
     <div className="mx-auto min-h-screen max-w-2xl pb-28">
+      {store.demo && (
+        <div className="bg-amber-100 px-4 py-2 text-center text-sm text-amber-900">
+          Loja de demonstração da WebTenda: pode testar à vontade, nenhum pedido é entregue.{" "}
+          <a href="https://webtenda.com.br" className="font-medium underline">Quero uma loja assim</a>
+        </div>
+      )}
       <header className="bg-brand-600 px-4 pb-6 pt-8 text-white">
         <div className="flex items-start justify-between gap-3">
           <h1 className="text-2xl font-bold">{store.name}</h1>

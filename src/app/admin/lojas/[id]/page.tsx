@@ -51,7 +51,10 @@ export default async function StoreDetail({ params }: { params: Promise<{ id: st
       <div>
         <Link href="/admin/lojas" className="text-sm text-stone-500 hover:underline">← Lojas</Link>
         <div className="mt-1 flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold">{store.name}</h1>
+          <h1 className="text-xl font-semibold">
+            {store.name}
+            {store.isDemo && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-900">Loja demo</span>}
+          </h1>
           <SituationBadge situation={storeSituation(store)} />
           <a href={`/loja/${store.slug}`} target="_blank" className="text-sm text-brand-700 hover:underline">Ver cardápio</a>
           <form action={enterAsSupport} className="ml-auto">

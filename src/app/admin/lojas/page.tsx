@@ -71,6 +71,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Promi
                 <td className="px-4 py-3">
                   <Link href={`/admin/lojas/${s.id}`} className="font-medium text-brand-700 hover:underline">{s.name}</Link>
                   <p className="text-xs text-stone-500">/loja/{s.slug}</p>
+                  {s.isDemo && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Demo</span>}
                 </td>
                 <td className="px-4 py-3 text-stone-600">{s.users[0]?.email ?? "—"}</td>
                 <td className="px-4 py-3">{s.plan.name}<p className="text-xs text-stone-500">{formatBRL(s.plan.priceCents)}</p></td>

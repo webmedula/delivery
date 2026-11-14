@@ -46,6 +46,11 @@ export default async function PainelLayout({ children }: { children: React.React
           </div>
         </div>
       </header>
+      {store.isDemo && (
+        <div className="bg-amber-100 px-4 py-2 text-center text-sm text-amber-900">
+          Loja de demonstração: os dados são fictícios e voltam ao original quando a administração recria as lojas demo.
+        </div>
+      )}
       {store.blockedAt ? (
         <div className="bg-red-600 px-4 py-2 text-center text-sm text-white">
           Sua loja foi bloqueada pela administração da WebTenda{store.blockedReason ? `: ${store.blockedReason}` : "."} Fale com o suporte.

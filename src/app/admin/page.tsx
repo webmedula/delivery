@@ -5,6 +5,9 @@ import { formatBRL } from "@/lib/money";
 import { summarizeStores } from "@/lib/admin-stats";
 import { situationLabel, storeSituation, type StoreSituation } from "@/lib/subscription";
 import { SituationBadge } from "@/components/SituationBadge";
+import { AdminActionForm } from "@/components/AdminForms";
+import { deleteDemoStores, resetDemoStores } from "./actions";
+import { DEFAULT_DEMO_PASSWORD } from "../../../prisma/demo";
 
 export const dynamic = "force-dynamic";
 
@@ -16,15 +19,17 @@ export default async function AdminHome() {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const [stores, newStores, weekOrders, recent] = await Promise.all([
-    db.store.findMany({ include: { plan: true } }),
-    db.store.count({ where: { createdAt: { gte: weekAgo } } }),
+    // Lojas demo ficam fora dos números (ver prisma/demo.ts).
+    db.store.findMany({ where: { isDemo: false }, include: { plan: true } }),
+    db.store.count({ where: { createdAt: { gte: weekAgo }, isDemo: false } }),
     db.order.aggregate({
-      where: { createdAt: { gte: weekAgo }, status: { not: "CANCELED" } },
+      where: { createdAt: { gte: weekAgo }, status: { not: "CANCELED" }, store: { isDemo: false } },
       _count: true,
       _sum: { totalCents: true },
     }),
-    db.store.findMany({ orderBy: { createdAt: "desc" }, take: 8, include: { plan: true } }),
+    db.store.findMany({ where: { isDemo: false }, orderBy: { createdAt: "desc" }, take: 8, include: { plan: true } }),
   ]);
+  const demos = await db.store.findMany({ where: { isDemo: true }, include: { users: { take: 1 } }, orderBy: { name: "asc" } });
   const summary = summarizeStores(stores);
 
   const cards = [
@@ -56,6 +61,37 @@ export default async function AdminHome() {
               <p className="text-sm text-stone-600">{situationLabel[s]}</p>
             </Link>
           ))}
+        </div>
+      </section>
+
+      <section className="card space-y-3">
+        <div>
+          <h2 className="font-semibold">Lojas demo</h2>
+          <p className="text-sm text-stone-500">
+            Para apresentar o sistema. Não têm cobrança nem pagamento online e não entram nos números acima.
+            Senha do painel: a da variável DEMO_PASSWORD ({DEFAULT_DEMO_PASSWORD} se não estiver definida).
+          </p>
+        </div>
+        {demos.length > 0 && (
+          <ul className="divide-y divide-stone-100 text-sm">
+            {demos.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <a href={`/loja/${s.slug}`} target="_blank" className="flex-1 font-medium text-brand-700 hover:underline">{s.name}</a>
+                <span className="text-stone-500">{s.users[0]?.email}</span>
+                <Link href={`/admin/lojas/${s.id}`} className="text-stone-600 hover:underline">detalhes</Link>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-wrap gap-3">
+          <AdminActionForm action={resetDemoStores} hidden={{}} confirmText="Apagar e recriar as lojas demo? Pedidos e alterações feitos nelas serão perdidos.">
+            <button className="btn">{demos.length ? "Recriar lojas demo" : "Criar lojas demo"}</button>
+          </AdminActionForm>
+          {demos.length > 0 && (
+            <AdminActionForm action={deleteDemoStores} hidden={{}} confirmText="Apagar todas as lojas demo?">
+              <button className="btn-ghost text-red-700">Apagar lojas demo</button>
+            </AdminActionForm>
+          )}
         </div>
       </section>
 

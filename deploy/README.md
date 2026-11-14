@@ -163,3 +163,39 @@ para os e-mails listados em `ADMIN_EMAILS`.
 
 Faça nessa ordem: o cadastro não confirma e-mail, então quem se cadastrar com um e-mail
 que já está em `ADMIN_EMAILS` vira administrador.
+
+## Lojas demo
+
+Quatro lojas de demonstração para apresentar o sistema a quem está conhecendo a WebTenda:
+
+| Loja | Cardápio | Login do painel |
+|---|---|---|
+| Brasa Burger (hamburgueria) | `/loja/brasa-burger` | `burger@demo.webtenda.com.br` |
+| Forno da Vila (pizzaria) | `/loja/forno-da-vila` | `pizza@demo.webtenda.com.br` |
+| Açaí da Praia | `/loja/acai-da-praia` | `acai@demo.webtenda.com.br` |
+| Mercadinho Bom Preço | `/loja/mercadinho-bom-preco` | `mercado@demo.webtenda.com.br` |
+
+Senha de todas: o valor de `DEMO_PASSWORD` (se não estiver definida, `demo1234`).
+
+Cada uma tem cardápio com fotos, 16 clientes, pedidos dos últimos 30 dias, 6 pedidos em andamento,
+cupons, fidelidade (uma cliente a 1 pedido da recompensa e outro com a recompensa liberada) e uma
+campanha de promoção pela metade.
+
+**Criar ou recriar:** entre em `/admin` e clique em **Criar lojas demo** (ou **Recriar lojas demo**,
+que apaga tudo o que foi feito nelas e gera os dados de novo, com os pedidos em datas recentes).
+Pelo terminal do serviço `app` no Easypanel também dá: `npm run demo` (recria) ou
+`npm run demo -- --remove` (apaga).
+
+**Variáveis opcionais (Environment do app):**
+
+```
+DEMO_STORES=1                 # cria as lojas demo que faltarem sempre que o app sobe
+DEMO_PASSWORD=<senha>         # senha do painel das lojas demo (padrão demo1234)
+DEMO_WHATSAPP=55119XXXXXXXX   # WhatsApp que recebe os pedidos de teste; sem ela o botão some
+```
+
+**O que fica desligado nelas:** assinatura e cobrança, pagamento online (Pix/cartão pelo Asaas) e
+os números da visão geral do `/admin`. Os telefones dos clientes usam DDD 00, que não existe,
+para nenhum link de WhatsApp do painel cair numa pessoa real. O cardápio mostra uma faixa
+"Loja de demonstração" com link para webtenda.com.br. Se algum dia uma loja real usar um dos
+endereços acima, o script para sem mudar nada.
