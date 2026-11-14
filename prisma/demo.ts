@@ -18,10 +18,11 @@ import bcrypt from "bcryptjs";
 export const DEMO_EMAIL_DOMAIN = "demo.webtenda.com.br";
 export const DEFAULT_DEMO_PASSWORD = "demo1234";
 
-type Item = [name: string, description: string, priceCents: number, image: string];
+type Item = [name: string, description: string, priceCents: number, imageUrl: string];
 
 type DemoStore = {
   key: string;
+  color: string; // cor do cardápio
   slug: string;
   name: string;
   description: string;
@@ -38,11 +39,14 @@ type DemoStore = {
   menu: Record<string, Item[]>;
 };
 
-const img = (name: string) => `/demo/${name}.svg`;
+// Fotos gratuitas do Unsplash (licença Unsplash: uso comercial liberado, sem atribuição obrigatória),
+// carregadas direto do CDN deles, como o Unsplash pede.
+const img = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=400&h=400&q=70`;
 
 export const DEMO_STORES: DemoStore[] = [
   {
     key: "burger",
+    color: "#ea580c",
     slug: "brasa-burger",
     name: "Brasa Burger",
     description: "Hambúrguer artesanal na brasa, blend da casa de 160g e pão brioche.",
@@ -61,31 +65,32 @@ export const DEMO_STORES: DemoStore[] = [
     hours: [18, 24],
     menu: {
       Burgers: [
-        ["Brasa Clássico", "Blend 160g, queijo prato, alface, tomate e maionese da casa", 2990, "burger"],
-        ["Brasa Bacon", "Blend 160g, cheddar, bacon crocante e cebola caramelizada", 3490, "burger-bacon"],
-        ["Duplo Smash", "Dois smash de 90g, queijo americano duplo e picles", 3290, "burger-duplo"],
-        ["Chicken Crispy", "Sobrecoxa empanada, coleslaw e molho de mostarda e mel", 2890, "chicken"],
-        ["Veggie da Horta", "Hambúrguer de grão-de-bico, rúcula, tomate e maionese verde", 2790, "veggie"],
+        ["Brasa Clássico", "Blend 160g, queijo prato, alface, tomate e maionese da casa", 2990, img("1757834787931-ddd70f3379a5")],
+        ["Brasa Bacon", "Blend 160g, cheddar, bacon crocante e cebola caramelizada", 3490, img("1766589221421-db1640fe64db")],
+        ["Duplo Smash", "Dois smash de 90g, queijo americano duplo e picles", 3290, img("1572802419224-296b0aeee0d9")],
+        ["Chicken Crispy", "Sobrecoxa empanada, coleslaw e molho de mostarda e mel", 2890, img("1705131186176-1c7cdb830815")],
+        ["Veggie da Horta", "Hambúrguer de grão-de-bico, rúcula, tomate e maionese verde", 2790, img("1788601405384-c749fb2147f9")],
       ],
       Combos: [
-        ["Combo Clássico", "Brasa Clássico + batata média + refrigerante lata", 4290, "combo"],
-        ["Combo Casal", "2 Brasa Bacon + batata grande + 2 refrigerantes", 8490, "combo-casal"],
+        ["Combo Clássico", "Brasa Clássico + batata média + refrigerante lata", 4290, img("1763689389824-dd2cea2e5772")],
+        ["Combo Casal", "2 Brasa Bacon + batata grande + 2 refrigerantes", 8490, img("1764201494609-fc2724d1e132")],
       ],
       Acompanhamentos: [
-        ["Batata frita", "Porção de 300g com sal e alecrim", 1690, "fries"],
-        ["Batata com cheddar e bacon", "Porção de 300g", 2390, "fries-cheddar"],
-        ["Onion rings", "Anéis de cebola empanados, 10 unidades", 1890, "onion"],
+        ["Batata frita", "Porção de 300g com sal e alecrim", 1690, img("1541592106381-b31e9677c0e5")],
+        ["Batata com cheddar e bacon", "Porção de 300g", 2390, img("1743193711514-4f7bc5d78d4d")],
+        ["Onion rings", "Anéis de cebola empanados, 10 unidades", 1890, img("1645066803695-f0dbe2c33e42")],
       ],
       Bebidas: [
-        ["Refrigerante lata", "Coca-Cola, Guaraná ou Sprite, 350ml", 650, "soda"],
-        ["Milkshake", "Chocolate, morango ou baunilha, 400ml", 1890, "shake"],
-        ["Água sem gás", "500ml", 400, "water"],
+        ["Refrigerante lata", "Cola, guaraná ou limão, 350ml", 650, img("1629654613528-5d0a2e4166de")],
+        ["Milkshake", "Chocolate, morango ou baunilha, 400ml", 1890, img("1775708838877-a3b8d7383c31")],
+        ["Água sem gás", "500ml", 400, img("1523362628745-0c100150b504")],
       ],
-      Sobremesas: [["Brownie", "Brownie de chocolate meio amargo com nozes", 1290, "brownie"]],
+      Sobremesas: [["Brownie", "Brownie de chocolate meio amargo com nozes", 1290, img("1636743715220-d8f8dd900b87")]],
     },
   },
   {
     key: "pizza",
+    color: "#be123c",
     slug: "forno-da-vila",
     name: "Forno da Vila",
     description: "Pizza de fermentação natural assada no forno a lenha. Grande com 8 fatias.",
@@ -104,29 +109,29 @@ export const DEMO_STORES: DemoStore[] = [
     hours: [18, 23],
     menu: {
       "Pizzas tradicionais": [
-        ["Margherita", "Molho de tomate, muçarela, manjericão e azeite", 5490, "pizza"],
-        ["Calabresa", "Calabresa fatiada, cebola roxa e azeitonas", 5290, "pizza-calabresa"],
-        ["Portuguesa", "Presunto, ovos, cebola, ervilha, muçarela e azeitonas", 5890, "pizza"],
-        ["Frango com catupiry", "Frango desfiado temperado e catupiry original", 5990, "pizza-frango"],
-        ["Quatro queijos", "Muçarela, provolone, parmesão e gorgonzola", 6290, "pizza-queijo"],
+        ["Margherita", "Molho de tomate, muçarela, manjericão e azeite", 5490, img("1772494047915-79042d21eb09")],
+        ["Calabresa", "Calabresa, champignon, azeitonas e muçarela", 5290, img("1604382354936-07c5d9983bd3")],
+        ["Presunto com champignon", "Presunto, champignon fresco e muçarela", 5890, img("1692737580563-7ba2d896f0f6")],
+        ["Frango com catupiry", "Frango desfiado temperado e catupiry original", 5990, img("1767065603441-61923212f80c")],
+        ["Quatro queijos", "Muçarela, provolone, parmesão e gorgonzola", 6290, img("1627461985459-51600559fffe")],
       ],
       "Pizzas especiais": [
-        ["Pepperoni", "Pepperoni artesanal e muçarela de búfala", 6890, "pizza-calabresa"],
-        ["Rúcula com tomate seco", "Muçarela de búfala, rúcula e tomate seco", 6590, "pizza-rucula"],
+        ["Pepperoni", "Pepperoni artesanal e muçarela de búfala", 6890, img("1777891257674-36c5532e6654")],
+        ["Rúcula com tomate seco", "Muçarela de búfala, rúcula e tomate seco", 6590, img("1598023696416-0193a0bcd302")],
       ],
       "Pizzas doces": [
-        ["Chocolate com morango", "Chocolate ao leite e morangos frescos", 5490, "pizza-doce"],
-        ["Romeu e Julieta", "Goiabada cremosa e muçarela", 4990, "pizza-doce"],
+        ["Chocolate com morango", "Chocolate ao leite e morangos frescos", 5490, img("1767114916329-9b5649724379")],
       ],
       Bebidas: [
-        ["Refrigerante 2L", "Coca-Cola ou Guaraná", 1390, "soda-2l"],
-        ["Suco natural", "Laranja ou limão, 500ml", 990, "juice"],
-        ["Cerveja long neck", "Heineken, 330ml", 1190, "beer"],
+        ["Refrigerante 2L", "Cola ou guaraná", 1390, img("1667450673236-62126ce038a8")],
+        ["Suco de laranja", "Natural, 500ml", 990, img("1613478223719-2ab802602423")],
+        ["Cerveja long neck", "Pilsen, 330ml", 1190, img("1644085159285-5fd924740cb3")],
       ],
     },
   },
   {
     key: "acai",
+    color: "#6d28d9",
     slug: "acai-da-praia",
     name: "Açaí da Praia",
     description: "Açaí cremoso batido na hora, com frutas e complementos à vontade.",
@@ -145,26 +150,27 @@ export const DEMO_STORES: DemoStore[] = [
     hours: [13, 22],
     menu: {
       "Copos de açaí": [
-        ["Açaí 300ml", "Com granola, banana e leite condensado", 1690, "acai"],
-        ["Açaí 500ml", "Com granola, banana, morango e leite em pó", 2290, "acai"],
-        ["Açaí 700ml", "Com 4 complementos à escolha (informe na observação)", 2890, "acai-grande"],
+        ["Açaí 300ml", "Com granola, banana e leite condensado", 1690, img("1627308594190-a057cd4bfac8")],
+        ["Açaí 500ml", "Com granola, banana, morango e mel", 2290, img("1777113310717-1047d523f2ad")],
+        ["Açaí 700ml", "Banana, blueberry, granola e coco ralado", 2890, img("1787406988073-c6ed034788ad")],
       ],
       Tigelas: [
-        ["Tigela tropical", "Açaí 500g com manga, kiwi, morango e mel", 3290, "acai-tigela"],
-        ["Tigela fit", "Açaí sem açúcar, banana, pasta de amendoim e chia", 2990, "acai-tigela"],
+        ["Tigela de frutas vermelhas", "Açaí 500g com morango, mirtilo e granola", 3290, img("1610441009633-b6ca9c6d4be2")],
+        ["Tigela fit", "Açaí sem açúcar, banana, pasta de amendoim e chia", 2990, img("1684403731883-67a71a793d2d")],
       ],
       "Cremes e sorvetes": [
-        ["Creme de cupuaçu 400ml", "Com castanha-do-pará", 2190, "cupuacu"],
-        ["Sorvete 2 bolas", "Sabores do dia (informe na observação)", 1390, "icecream"],
+        ["Sorvete com banana e granola", "Duas bolas de creme, banana e granola", 2190, img("1676515841519-7bb498597c73")],
+        ["Sorvete 2 bolas", "Sabores do dia (informe na observação)", 1390, img("1570197788417-0e82375c9371")],
       ],
       Bebidas: [
-        ["Vitamina de açaí", "Açaí batido com banana e leite, 500ml", 1590, "smoothie"],
-        ["Água de coco", "300ml", 700, "coconut"],
+        ["Vitamina de frutas vermelhas", "Açaí, morango e banana batidos, 500ml", 1590, img("1615478503562-ec2d8aa0e24e")],
+        ["Coco gelado", "Coco verde com canudo", 700, img("1761576881090-a3253f7e53dc")],
       ],
     },
   },
   {
     key: "mercado",
+    color: "#15803d",
     slug: "mercadinho-bom-preco",
     name: "Mercadinho Bom Preço",
     description: "Hortifruti, padaria e mercearia do bairro, entregue na sua porta em até 1 hora.",
@@ -183,26 +189,26 @@ export const DEMO_STORES: DemoStore[] = [
     hours: [8, 20],
     menu: {
       Hortifruti: [
-        ["Banana prata (kg)", "Aproximadamente 7 unidades", 699, "banana"],
-        ["Tomate (kg)", "Tomate italiano selecionado", 899, "tomato"],
-        ["Alface crespa", "Unidade, cultivo hidropônico", 399, "lettuce"],
-        ["Maçã gala (kg)", "Aproximadamente 6 unidades", 1090, "apple"],
+        ["Banana prata (kg)", "Aproximadamente 7 unidades", 699, img("1768672991601-e72e8005142c")],
+        ["Tomate (kg)", "Tomate italiano selecionado", 899, img("1582284540020-8acbe03f4924")],
+        ["Alface", "Unidade, cultivo hidropônico", 399, img("1640958904159-51ae08bd3412")],
+        ["Maçã gala (kg)", "Aproximadamente 6 unidades", 1090, img("1560806887-1e4cd0b6cbd6")],
       ],
       Padaria: [
-        ["Pão francês (10 un.)", "Saindo do forno a cada 2 horas", 890, "bread"],
-        ["Bolo de cenoura", "Com cobertura de chocolate, 500g", 1890, "cake"],
+        ["Pão francês (10 un.)", "Saindo do forno a cada 2 horas", 890, img("1671036437036-0b1f11c80941")],
+        ["Bolo de cenoura", "Fatia generosa, feito na casa", 1890, img("1676300186098-9b5ae9916e3c")],
       ],
       Mercearia: [
-        ["Arroz tipo 1 (5kg)", "Grãos longos e finos", 2690, "rice"],
-        ["Feijão carioca (1kg)", "Tipo 1", 849, "beans"],
-        ["Café torrado (500g)", "Torra média, moído", 1990, "coffee"],
-        ["Ovos brancos (dúzia)", "Granja local", 1190, "eggs"],
+        ["Arroz tipo 1 (5kg)", "Grãos longos e finos", 2690, img("1586201375761-83865001e31c")],
+        ["Feijão carioca (1kg)", "Tipo 1", 849, img("1787657513507-a657058d5f25")],
+        ["Café em grãos (500g)", "Torra média, 100% arábica", 1990, img("1606486544554-164d98da4889")],
+        ["Ovos (dúzia)", "Granja local", 1190, img("1758450286526-2d1588a6f322")],
       ],
       Bebidas: [
-        ["Leite integral (1L)", "Caixa", 599, "milk"],
-        ["Refrigerante 2L", "Coca-Cola ou Guaraná", 1190, "soda-2l"],
+        ["Leite integral (1L)", "Caixa", 599, img("1550583724-b2692b85b150")],
+        ["Refrigerante 2L", "Cola ou guaraná", 1190, img("1648569883125-d01072540b4c")],
       ],
-      Limpeza: [["Detergente 500ml", "Neutro", 299, "detergent"]],
+      Limpeza: [["Detergente 500ml", "Neutro, com bico dosador", 299, img("1590610994353-7b0e7546e681")]],
     },
   },
 ];
@@ -270,6 +276,8 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       description: demo.description,
       address: demo.address,
       whatsapp: demoWhatsapp(),
+      logoUrl: `/demo/logos/${demo.slug}.svg`,
+      themeColor: demo.color,
       pixKey: `pix@${demo.slug}.exemplo`,
       isOpen: true,
       isDemo: true,
@@ -298,7 +306,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     for (const [name, description, priceCents, image] of items) {
       const id = `${storeId}-p${position}`;
       products.push({ id, name, priceCents });
-      await tx.product.create({ data: { id, storeId, categoryId: cat.id, name, description, priceCents, imageUrl: img(image), position: position++ } });
+      await tx.product.create({ data: { id, storeId, categoryId: cat.id, name, description, priceCents, imageUrl: image, position: position++ } });
     }
   }
 

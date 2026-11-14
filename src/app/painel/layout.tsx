@@ -31,7 +31,13 @@ export default async function PainelLayout({ children }: { children: React.React
       )}
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
-          <span className="flex items-center gap-2 font-bold text-brand-700"><LogoMark className="h-7 w-7" />{store.name}</span>
+          <span className="flex items-center gap-2 font-bold text-brand-700">{store.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={store.logoUrl} alt="" className="h-7 w-7 rounded-md object-cover" />
+            ) : (
+              <LogoMark className="h-7 w-7" />
+            )}
+            {store.name}</span>
           <nav className="flex flex-wrap gap-1 text-sm">
             {nav.map((n) => (
               <Link key={n.href} href={n.href} className="rounded-md px-2.5 py-1.5 text-stone-700 hover:bg-stone-100">

@@ -9,7 +9,7 @@ import { placeOrder, previewCoupon } from "@/app/loja/[slug]/actions";
 type Product = { id: string; name: string; description: string | null; priceCents: number; imageUrl: string | null };
 type Section = { id: string; name: string; products: Product[] };
 type StoreInfo = {
-  slug: string; name: string; description: string | null; address: string | null;
+  slug: string; name: string; description: string | null; address: string | null; logoUrl: string | null;
   deliveryFeeCents: number; minOrderCents: number; acceptsDelivery: boolean; acceptsPickup: boolean; accepting: boolean;
   /** Texto do programa de fidelidade, ex.: "A cada 10 pedidos, ganhe 10% de desconto". */
   loyalty: string | null;
@@ -136,7 +136,13 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
       )}
       <header className="bg-brand-600 px-4 pb-6 pt-8 text-white">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-2xl font-bold">{store.name}</h1>
+          <div className="flex items-center gap-3">
+            {store.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={store.logoUrl} alt="" className="h-16 w-16 flex-none rounded-2xl object-cover shadow-md" />
+            )}
+            <h1 className="text-2xl font-bold">{store.name}</h1>
+          </div>
           <Link href={`/loja/${store.slug}/conta`} className="flex-none rounded-full bg-white/15 px-3 py-1 text-sm font-medium hover:bg-white/25">
             {customer ? `Olá, ${customer.name.split(" ")[0]}` : "Minha conta"}
           </Link>

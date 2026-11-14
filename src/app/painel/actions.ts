@@ -17,6 +17,7 @@ import { createStoreSubaccount, setOnlineMethods } from "@/lib/payments";
 import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
 import { asaasSandbox } from "@/lib/asaas";
 import { canEnableOnlinePayments } from "@/lib/payment-events";
+import { HEX_COLOR } from "@/lib/theme";
 
 const DEMO_BLOCKED = "Esta é uma loja de demonstração: assinatura e pagamento online ficam desligados.";
 
@@ -120,6 +121,11 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
   if (whatsapp && (whatsapp.length < 12 || whatsapp.length > 13))
     return { error: "WhatsApp deve ter DDI + DDD + número, ex.: 5511999999999." };
 
+  const logoUrl = get("logoUrl");
+  if (logoUrl && !/^(https?:\/\/|\/)\S+$/.test(logoUrl)) return { error: "Link do logo inválido." };
+  const themeColor = get("themeColor").toLowerCase();
+  if (themeColor && !HEX_COLOR.test(themeColor)) return { error: "Cor inválida." };
+
   const acceptsDelivery = formData.get("acceptsDelivery") === "on";
   const acceptsPickup = formData.get("acceptsPickup") === "on";
   if (!acceptsDelivery && !acceptsPickup) return { error: "Ative entrega, retirada ou os dois." };
@@ -132,6 +138,8 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
       whatsapp: whatsapp || null,
       address: get("address") || null,
       pixKey: get("pixKey") || null,
+      logoUrl: logoUrl || null,
+      themeColor: themeColor && themeColor !== "#ea580c" ? themeColor : null,
       deliveryFeeCents,
       minOrderCents,
       acceptsDelivery,
