@@ -100,6 +100,7 @@ model Store {
   users              User[]
   customers          Customer[]
   coupons            Coupon[]
+  campaigns          Campaign[]
   categories         Category[]
   products           Product[]
   orders             Order[]
@@ -228,6 +229,7 @@ model Customer {
   pinLockedUntil  DateTime?
   addresses       CustomerAddress[]
   orders          Order[]
+  campaignSends   CampaignRecipient[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -259,7 +261,38 @@ model Coupon {
   expiresAt        DateTime?
   active           Boolean      @default(true)
   orders           Order[]
+  campaigns        Campaign[]
   createdAt        DateTime     @default(now())
 
   @@unique([storeId, code])
+}
+
+// Campanha de promoção. O envio é feito pelo WhatsApp da própria loja,
+// um cliente por vez (link wa.me), só para quem aceitou receber promoções.
+// A lista de destinatários é congelada na criação.
+model Campaign {
+  id         String              @id @default(cuid())
+  storeId    String
+  store      Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name       String
+  message    String              // modelo com {nome}, {loja}, {link}, {cupom}
+  audience   String              // all | inactive | new | reward
+  couponId   String?
+  coupon     Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  recipients CampaignRecipient[]
+  createdAt  DateTime            @default(now())
+
+  @@index([storeId, createdAt])
+}
+
+model CampaignRecipient {
+  id         String    @id @default(cuid())
+  campaignId String
+  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sentAt     DateTime?
+  skipped    Boolean   @default(false)
+
+  @@unique([campaignId, customerId])
 }

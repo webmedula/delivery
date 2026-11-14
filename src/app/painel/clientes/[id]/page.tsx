@@ -6,6 +6,7 @@ import { formatBRL } from "@/lib/money";
 import { formatPhone, whatsappLink } from "@/lib/phone";
 import { orderStatusLabel } from "@/lib/order-status";
 import { getLoyaltyStatus } from "@/lib/customers";
+import { optOutCustomer } from "../../campanhas/actions";
 
 export const dynamic = "force-dynamic";
 const dateFmt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
@@ -32,7 +33,15 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             {customer.marketingOptIn ? " · aceita promoções" : ""}
           </p>
         </div>
-        <a href={whatsappLink(customer.phone, `Olá, ${customer.name.split(" ")[0]}! Aqui é da ${store.name}.`)} target="_blank" className="btn">Chamar no WhatsApp</a>
+        <div className="flex flex-wrap items-center gap-3">
+          {customer.marketingOptIn && (
+            <form action={optOutCustomer}>
+              <input type="hidden" name="customerId" value={customer.id} />
+              <button className="text-sm text-red-600 hover:underline">Parar de enviar promoções</button>
+            </form>
+          )}
+          <a href={whatsappLink(customer.phone, `Olá, ${customer.name.split(" ")[0]}! Aqui é da ${store.name}.`)} target="_blank" className="btn">Chamar no WhatsApp</a>
+        </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="card"><p className="text-sm text-stone-500">Pedidos</p><p className="text-2xl font-bold">{valid.length}</p></div>

@@ -9,7 +9,8 @@ const nav = [
   { href: "/painel", label: "Pedidos" },
   { href: "/painel/cardapio", label: "Cardápio" },
   { href: "/painel/clientes", label: "Clientes" },
-  { href: "/painel/promocoes", label: "Cupons e fidelidade" },
+  { href: "/painel/promocoes", label: "Cupons" },
+  { href: "/painel/campanhas", label: "Promoções" },
   { href: "/painel/loja", label: "Minha loja" },
   { href: "/painel/assinatura", label: "Assinatura" },
 ];
