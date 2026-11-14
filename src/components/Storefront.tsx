@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatBRL } from "@/lib/money";
 import { placeOrder, previewCoupon } from "@/app/loja/[slug]/actions";
+import { guessZone } from "@/lib/delivery";
 
 type Product = { id: string; name: string; description: string | null; priceCents: number; imageUrl: string | null };
 type Section = { id: string; name: string; products: Product[] };
@@ -17,6 +18,10 @@ type StoreInfo = {
   reward: { type: "PERCENT" | "FIXED"; value: number } | null;
   /** Formas de pagamento online (Asaas) ligadas pela loja. */
   online: { pix: boolean; card: boolean };
+  /** Bairros atendidos (vazio = taxa única deliveryFeeCents). */
+  zones: { id: string; name: string; feeCents: number }[];
+  /** Tempo estimado, ex.: "40 a 60 min" (null = a loja não informou). */
+  eta: { delivery: string | null; pickup: string | null };
   /** Loja de demonstração da WebTenda: mostra um aviso no topo. */
   demo?: boolean;
 };
@@ -53,6 +58,10 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [addressChoice, setAddressChoice] = useState<string>(customer?.addresses[0]?.id ?? "new");
+  const zoneList = useMemo(() => store.zones.map((z) => ({ ...z, active: true })), [store.zones]);
+  const [zoneId, setZoneId] = useState<string>(() => guessZone(zoneList, customer?.addresses[0]?.address)?.id ?? "");
+  const zone = store.zones.find((z) => z.id === zoneId);
+  const hasZones = store.zones.length > 0;
   const [useReward, setUseReward] = useState(!!customer?.loyalty?.rewardAvailable);
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountCents: number } | null>(null);
@@ -78,7 +87,7 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
   const products = useMemo(() => new Map(sections.flatMap((s) => s.products).map((p) => [p.id, p])), [sections]);
   const lines = Object.entries(cart).filter(([id, q]) => q > 0 && products.has(id)).map(([id, q]) => ({ product: products.get(id)!, quantity: q }));
   const subtotal = lines.reduce((s, l) => s + l.product.priceCents * l.quantity, 0);
-  const fee = fulfillment === "DELIVERY" ? store.deliveryFeeCents : 0;
+  const fee = fulfillment !== "DELIVERY" ? 0 : hasZones ? (zone?.feeCents ?? 0) : store.deliveryFeeCents;
   const count = lines.reduce((s, l) => s + l.quantity, 0);
   const rewardActive = useReward && !!customer?.loyalty?.rewardAvailable;
   // O desconto do cupom é recalculado no servidor; aqui só mostramos a prévia.
@@ -109,6 +118,7 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
         customerName: String(form.get("customerName") ?? ""),
         customerPhone: phone,
         fulfillment,
+        deliveryZoneId: fulfillment === "DELIVERY" && zoneId ? zoneId : undefined,
         address:
           (addressChoice !== "new" ? customer?.addresses.find((a) => a.id === addressChoice)?.address : String(form.get("address") ?? "")) ||
           undefined,
@@ -128,8 +138,11 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
 
   const cover = sections.flatMap((s) => s.products).find((p) => p.imageUrl)?.imageUrl ?? null;
   const chips = [
-    store.acceptsDelivery && { icon: <IconBike />, text: `Entrega ${store.deliveryFeeCents ? formatBRL(store.deliveryFeeCents) : "grátis"}` },
-    store.acceptsPickup && { icon: <IconBag />, text: "Retirada no local" },
+    store.acceptsDelivery && {
+      icon: <IconBike />,
+      text: `Entrega ${deliveryFeeText(store)}${store.eta.delivery ? ` · ${store.eta.delivery}` : ""}`,
+    },
+    store.acceptsPickup && { icon: <IconBag />, text: `Retirada no local${store.eta.pickup ? ` · ${store.eta.pickup}` : ""}` },
     store.minOrderCents > 0 && { icon: <IconReceipt />, text: `Mínimo ${formatBRL(store.minOrderCents)}` },
   ].filter(Boolean) as { icon: React.ReactNode; text: string }[];
 
@@ -319,7 +332,17 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
                 <legend className="label">Endereço de entrega</legend>
                 {customer.addresses.map((a) => (
                   <label key={a.id} className="flex items-start gap-2 rounded-lg border border-stone-200 p-2 text-sm has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
-                    <input type="radio" name="addressChoice" className="mt-1" checked={addressChoice === a.id} onChange={() => setAddressChoice(a.id)} />
+                    <input
+                      type="radio"
+                      name="addressChoice"
+                      className="mt-1"
+                      checked={addressChoice === a.id}
+                      onChange={() => {
+                        setAddressChoice(a.id);
+                        const guess = guessZone(zoneList, a.address);
+                        if (guess) setZoneId(guess.id);
+                      }}
+                    />
                     <span>{a.address}</span>
                   </label>
                 ))}
@@ -331,6 +354,23 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
             )}
             {fulfillment === "DELIVERY" && (addressChoice === "new" || !customer?.addresses.length) && (
               <textarea name="address" placeholder="Endereço completo (rua, número, bairro, referência)" className="input" rows={2} required />
+            )}
+            {fulfillment === "DELIVERY" && hasZones && (
+              <div>
+                <label className="label" htmlFor="zone">Seu bairro</label>
+                <select id="zone" className="input" value={zoneId} onChange={(e) => setZoneId(e.target.value)} required>
+                  <option value="" disabled>Escolha o bairro</option>
+                  {store.zones.map((z) => (
+                    <option key={z.id} value={z.id}>{z.name} · {z.feeCents ? formatBRL(z.feeCents) : "grátis"}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-stone-500">Seu bairro não está na lista? Fale com a loja antes de pedir.</p>
+              </div>
+            )}
+            {(fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup) && (
+              <p className="text-sm text-stone-600">
+                ⏱ {fulfillment === "DELIVERY" ? "Entrega" : "Fica pronto"} em {fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup}
+              </p>
             )}
 
             <div>
@@ -381,7 +421,12 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
 
             <div className="space-y-1 border-t border-stone-100 pt-3 text-sm">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatBRL(subtotal)}</span></div>
-              {fulfillment === "DELIVERY" && <div className="flex justify-between"><span>Entrega</span><span>{formatBRL(fee)}</span></div>}
+              {fulfillment === "DELIVERY" && (
+                <div className="flex justify-between">
+                  <span>Entrega{zone ? ` (${zone.name})` : ""}</span>
+                  <span>{hasZones && !zone ? "escolha o bairro" : formatBRL(fee)}</span>
+                </div>
+              )}
               {discount > 0 && (
                 <div className="flex justify-between text-green-700">
                   <span>{rewardActive ? "Recompensa de fidelidade" : `Cupom ${coupon?.code}`}</span><span>−{formatBRL(discount)}</span>
@@ -399,6 +444,14 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
       )}
     </div>
   );
+}
+
+function deliveryFeeText(store: StoreInfo) {
+  if (store.zones.length === 0) return store.deliveryFeeCents ? formatBRL(store.deliveryFeeCents) : "grátis";
+  const min = Math.min(...store.zones.map((z) => z.feeCents));
+  const max = Math.max(...store.zones.map((z) => z.feeCents));
+  if (max === 0) return "grátis";
+  return min === max ? formatBRL(min) : `de ${min ? formatBRL(min) : "grátis"} a ${formatBRL(max)}`;
 }
 
 /** A foto pode falhar antes do React ligar o onError (página vinda do servidor): confere ao montar. */

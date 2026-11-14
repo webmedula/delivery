@@ -13,6 +13,7 @@ import { checkCoupon, discountCents, normalizeCouponCode, type CouponCheck } fro
 import { cancelAwaitingOrder, createOrderPayment, onlineMethods } from "@/lib/payments";
 import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
 import { MIN_ONLINE_PAYMENT_CENTS } from "@/lib/payment-events";
+import { etaFor, resolveDeliveryFee } from "@/lib/delivery";
 import { clearCustomerSession, getLoyaltyStatus, getSessionCustomer, setCustomerSession } from "@/lib/customers";
 
 const schema = z.object({
@@ -22,6 +23,7 @@ const schema = z.object({
   customerPhone: z.string().trim().min(8, "Informe seu telefone."),
   fulfillment: z.enum(["DELIVERY", "PICKUP"]),
   address: z.string().trim().max(300).optional(),
+  deliveryZoneId: z.string().max(40).optional(),
   paymentMethod: z.enum(["PIX", "CASH", "CARD_ON_DELIVERY", "ONLINE_PIX", "ONLINE_CARD"]),
   cpfCnpj: z.string().max(20).optional(),
   changeFor: z.string().optional(),
@@ -64,7 +66,7 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   const phone = normalizePhone(data.customerPhone);
   if (!isValidPhone(phone)) return { ok: false, error: "Telefone inválido. Use DDD + número, ex.: (11) 98888-7777." };
 
-  const store = await db.store.findUnique({ where: { slug: data.slug }, include: { plan: true } });
+  const store = await db.store.findUnique({ where: { slug: data.slug }, include: { plan: true, deliveryZones: true } });
   if (!store) return { ok: false, error: "Loja não encontrada." };
   if (!store.isOpen || !canTakeOrders(store)) return { ok: false, error: "A loja não está recebendo pedidos agora." };
   if (data.fulfillment === "DELIVERY" && !data.address) return { ok: false, error: "Informe o endereço de entrega." };
@@ -81,7 +83,11 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
     where: { storeId: store.id, id: { in: data.cart.map((c) => c.productId) } },
     select: { id: true, name: true, priceCents: true, available: true },
   });
-  const quote = quoteOrder(data.cart, catalog, store, data.fulfillment);
+  // Taxa por bairro (se a loja cadastrou bairros) ou a taxa única da loja.
+  const fee = data.fulfillment === "DELIVERY" ? resolveDeliveryFee(store.deliveryZones, data.deliveryZoneId, store.deliveryFeeCents) : null;
+  if (fee && !fee.ok) return fee;
+  const zone = fee?.ok ? fee.zone : null;
+  const quote = quoteOrder(data.cart, catalog, { ...store, deliveryFeeCents: fee?.ok ? fee.feeCents : store.deliveryFeeCents }, data.fulfillment);
   if (!quote.ok) return quote;
 
   const online = data.paymentMethod === "ONLINE_PIX" || data.paymentMethod === "ONLINE_CARD";
@@ -118,6 +124,7 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   const changeForCents =
     data.paymentMethod === "CASH" && data.changeFor ? parseBRLToCents(data.changeFor) : null;
   const address = data.fulfillment === "DELIVERY" ? data.address!.replace(/\s+/g, " ").trim() : null;
+  const eta = etaFor(store, data.fulfillment);
 
   // Número sequencial por loja. Em caso de corrida, a constraint única
   // (storeId, number) falha e tentamos de novo.
@@ -160,6 +167,10 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
             customerName: data.customerName,
             customerPhone: phone,
             address,
+            deliveryZoneId: zone?.id ?? null,
+            deliveryZoneName: zone?.name ?? null,
+            etaMinutesMin: eta?.min ?? null,
+            etaMinutesMax: eta?.max ?? null,
             notes: data.notes || null,
             subtotalCents: quote.subtotalCents,
             deliveryFeeCents: quote.deliveryFeeCents,

@@ -239,6 +239,16 @@ function rng(seed: string) {
   };
 }
 
+// Tempo estimado mostrado ao cliente: [entrega mín, entrega máx, retirada mín, retirada máx].
+const DEMO_ETA: Record<string, [number, number, number, number]> = {
+  burger: [40, 55, 15, 25],
+  pizza: [45, 60, 25, 35],
+  acai: [25, 40, 10, 15],
+  mercado: [30, 50, 15, 20],
+};
+// Bairros dos clientes demo; a taxa sobe a partir da taxa base da loja.
+const DEMO_ZONES: [name: string, extraCents: number][] = [["Centro", 0], ["Vila Nova", 100], ["Boa Vista", 200], ["Jardim América", 300]];
+
 export const demoStoreId = (key: string) => `demo-store-${key}`;
 const demoUserId = (key: string) => `demo-user-${key}`;
 export const demoEmail = (key: string) => `${key}@${DEMO_EMAIL_DOMAIN}`;
@@ -283,6 +293,10 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       isDemo: true,
       deliveryFeeCents: demo.deliveryFeeCents,
       minOrderCents: demo.minOrderCents,
+      deliveryMinutesMin: DEMO_ETA[demo.key]?.[0] ?? null,
+      deliveryMinutesMax: DEMO_ETA[demo.key]?.[1] ?? null,
+      pickupMinutesMin: DEMO_ETA[demo.key]?.[2] ?? null,
+      pickupMinutesMax: DEMO_ETA[demo.key]?.[3] ?? null,
       acceptsDelivery: true,
       acceptsPickup: demo.acceptsPickup,
       planId,
@@ -297,6 +311,11 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       users: { create: { id: demoUserId(demo.key), name: `${demo.name} (demo)`, email: demoEmail(demo.key), passwordHash } },
     },
   });
+
+  // Bairros e taxas
+  const zones = DEMO_ZONES.map(([name, extra], i) => ({ id: `${storeId}-z${i}`, storeId, name, feeCents: demo.deliveryFeeCents + extra }));
+  await tx.deliveryZone.createMany({ data: zones });
+  const zoneOf = (address: string) => zones.find((z) => address.endsWith(`- ${z.name}`)) ?? zones[0];
 
   // Cardápio
   const products: { id: string; name: string; priceCents: number }[] = [];
@@ -407,7 +426,19 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     }
     const fulfillment: FulfillmentType =
       d.status === "READY_FOR_PICKUP" || (d.status !== "OUT_FOR_DELIVERY" && demo.acceptsPickup && rand() < 0.2) ? "PICKUP" : "DELIVERY";
-    const fee = fulfillment === "DELIVERY" ? demo.deliveryFeeCents : 0;
+    const zone = fulfillment === "DELIVERY" ? zoneOf(d.customer.address) : null;
+    const fee = zone?.feeCents ?? 0;
+    const eta = DEMO_ETA[demo.key];
+    const [etaMin, etaMax] = fulfillment === "DELIVERY" ? [eta?.[0], eta?.[1]] : [eta?.[2], eta?.[3]];
+    // Datas de cada etapa: histórico concluído em um tempo realista; os em andamento até a etapa atual.
+    const minutes = (m: number) => new Date(d.at.getTime() + m * 60_000);
+    const total0 = (etaMin ?? 40) + between(-8, 12);
+    const reached = (s: OrderStatus[]) => s.includes(d.status);
+    const acceptedAt = reached(["CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED"]) ? minutes(between(1, 3)) : null;
+    const dispatchedAt = reached(["OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED"])
+      ? minutes(d.status === "COMPLETED" ? Math.round(total0 * 0.6) : Math.max(4, Math.round((now.getTime() - d.at.getTime()) / 60_000) - 3))
+      : null;
+    const completedAt = d.status === "COMPLETED" ? minutes(total0) : null;
     let discountCents = 0;
     let couponCode: string | null = null;
     const first = !seen.has(d.customer.id);
@@ -432,6 +463,14 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       customerName: d.customer.name,
       customerPhone: d.customer.phone,
       address: fulfillment === "DELIVERY" ? d.customer.address : null,
+      deliveryZoneId: zone?.id ?? null,
+      deliveryZoneName: zone?.name ?? null,
+      etaMinutesMin: etaMin ?? null,
+      etaMinutesMax: etaMax ?? null,
+      acceptedAt,
+      dispatchedAt,
+      completedAt,
+      canceledAt: d.status === "CANCELED" ? minutes(between(2, 10)) : null,
       notes: pick(NOTES),
       subtotalCents: subtotal,
       deliveryFeeCents: fee,

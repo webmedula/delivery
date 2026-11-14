@@ -89,6 +89,12 @@ model Store {
   acceptsDelivery    Boolean            @default(true)
   acceptsPickup      Boolean            @default(true)
   pixKey             String?
+  // Tempo estimado mostrado ao cliente, em minutos (vazio = não mostra).
+  deliveryMinutesMin Int?
+  deliveryMinutesMax Int?
+  pickupMinutesMin   Int?
+  pickupMinutesMax   Int?
+  deliveryZones      DeliveryZone[]
 
   planId             String
   plan               Plan               @relation(fields: [planId], references: [id])
@@ -203,6 +209,18 @@ model Order {
   paymentId        String?         @unique // cobrança no Asaas (pay_...)
   paymentUrl       String?         // fatura do Asaas (usada para pagar com cartão)
   paidAt           DateTime?
+  // Bairro escolhido (quando a loja cobra taxa por bairro). Nome copiado no momento do pedido.
+  deliveryZoneId   String?
+  deliveryZone     DeliveryZone?   @relation(fields: [deliveryZoneId], references: [id], onDelete: SetNull)
+  deliveryZoneName String?
+  // Previsão em minutos a partir da criação, copiada da loja no momento do pedido.
+  etaMinutesMin    Int?
+  etaMinutesMax    Int?
+  // Quando o pedido passou por cada etapa (para histórico e tempo médio).
+  acceptedAt       DateTime?
+  dispatchedAt     DateTime?       // saiu para entrega / ficou pronto para retirar
+  completedAt      DateTime?
+  canceledAt       DateTime?
   items            OrderItem[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -211,6 +229,22 @@ model Order {
   @@index([storeId, createdAt])
   @@index([customerId])
   @@index([couponId])
+  @@index([storeId, status])
+}
+
+// Bairro atendido e sua taxa de entrega. Se a loja tem bairros, o cliente escolhe um na sacola
+// e a taxa única da loja deixa de valer.
+model DeliveryZone {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  feeCents  Int
+  active    Boolean  @default(true)
+  orders    Order[]
+  createdAt DateTime @default(now())
+
+  @@unique([storeId, name])
 }
 
 model OrderItem {
