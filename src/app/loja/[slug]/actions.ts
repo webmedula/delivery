@@ -10,6 +10,9 @@ import { canTakeOrders } from "@/lib/subscription";
 import { parseBRLToCents } from "@/lib/money";
 import { isValidPhone, normalizePhone } from "@/lib/phone";
 import { checkCoupon, discountCents, normalizeCouponCode, type CouponCheck } from "@/lib/discounts";
+import { cancelAwaitingOrder, createOrderPayment, onlineMethods } from "@/lib/payments";
+import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
+import { MIN_ONLINE_PAYMENT_CENTS } from "@/lib/payment-events";
 import { clearCustomerSession, getLoyaltyStatus, getSessionCustomer, setCustomerSession } from "@/lib/customers";
 
 const schema = z.object({
@@ -19,7 +22,8 @@ const schema = z.object({
   customerPhone: z.string().trim().min(8, "Informe seu telefone."),
   fulfillment: z.enum(["DELIVERY", "PICKUP"]),
   address: z.string().trim().max(300).optional(),
-  paymentMethod: z.enum(["PIX", "CASH", "CARD_ON_DELIVERY"]),
+  paymentMethod: z.enum(["PIX", "CASH", "CARD_ON_DELIVERY", "ONLINE_PIX", "ONLINE_CARD"]),
+  cpfCnpj: z.string().max(20).optional(),
   changeFor: z.string().optional(),
   notes: z.string().trim().max(500).optional(),
   couponCode: z.string().max(40).optional(),
@@ -69,7 +73,7 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const count = await db.order.count({ where: { storeId: store.id, createdAt: { gte: monthStart } } });
+    const count = await db.order.count({ where: { storeId: store.id, createdAt: { gte: monthStart }, paymentStatus: { not: "FAILED" } } });
     if (count >= store.plan.maxOrdersMonth) return { ok: false, error: "A loja não está recebendo pedidos agora." };
   }
 
@@ -79,6 +83,14 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   });
   const quote = quoteOrder(data.cart, catalog, store, data.fulfillment);
   if (!quote.ok) return quote;
+
+  const online = data.paymentMethod === "ONLINE_PIX" || data.paymentMethod === "ONLINE_CARD";
+  if (online) {
+    const methods = onlineMethods(store);
+    if (data.paymentMethod === "ONLINE_PIX" ? !methods.pix : !methods.card)
+      return { ok: false, error: "Esta forma de pagamento não está disponível. Escolha outra." };
+    if (!normalizeCpfCnpj(data.cpfCnpj ?? "")) return { ok: false, error: "Informe um CPF válido para pagar online." };
+  }
 
   const { customer: known, trusted, isNew } = await resolveCustomer(store, phone);
 
@@ -99,6 +111,9 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
     couponId = coupon.id;
     couponCode = coupon.code;
   }
+
+  if (online && quote.totalCents - discount < MIN_ONLINE_PAYMENT_CENTS)
+    return { ok: false, error: "Pagamento online só a partir de R$ 5,00. Escolha outra forma de pagamento." };
 
   const changeForCents =
     data.paymentMethod === "CASH" && data.changeFor ? parseBRLToCents(data.changeFor) : null;
@@ -138,6 +153,8 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
             number: (last?.number ?? 0) + 1,
             fulfillment: data.fulfillment,
             paymentMethod: data.paymentMethod,
+            // Pedido pago online só aparece para a loja depois que o pagamento é confirmado.
+            paymentStatus: online ? "AWAITING" : "NONE",
             changeForCents,
             customerId,
             customerName: data.customerName,
@@ -157,6 +174,10 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
       });
       // Primeiro pedido com este telefone: o aparelho fica logado como esse cliente.
       if (isNew && order.customerId) await setCustomerSession(store.id, order.customerId);
+      if (online) {
+        const payment = await createOrderPayment(order.id, data.cpfCnpj ?? "");
+        if (!payment.ok) return payment;
+      }
       return { ok: true, orderId: order.id };
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue;
@@ -263,4 +284,14 @@ export async function deleteCustomerAddress(formData: FormData) {
   if (!ctx) return;
   await db.customerAddress.deleteMany({ where: { id: String(formData.get("id")), customerId: ctx.customer.id } });
   revalidatePath(`/loja/${slug}/conta`);
+}
+
+// --- Pagamento online ---
+
+/** O cliente desistiu de pagar online: cancela o pedido para poder refazer com outra forma. */
+export async function cancelUnpaidOrder(formData: FormData) {
+  const slug = String(formData.get("slug") ?? "");
+  const order = await db.order.findFirst({ where: { id: String(formData.get("orderId") ?? ""), store: { slug } }, include: { store: true } });
+  if (order) await cancelAwaitingOrder(order);
+  revalidatePath(`/loja/${slug}/pedido/${order?.id}`);
 }

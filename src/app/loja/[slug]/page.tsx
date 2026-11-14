@@ -6,6 +6,7 @@ import { Storefront } from "@/components/Storefront";
 import { getLoyaltyStatus, getSessionCustomer } from "@/lib/customers";
 import { describeDiscount } from "@/lib/discounts";
 import { formatPhone } from "@/lib/phone";
+import { onlineMethods } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -56,12 +57,14 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         accepting,
         loyalty: store.loyaltyEnabled ? `a cada ${store.loyaltyOrdersRequired} pedidos, ganhe ${describeDiscount(reward)}` : null,
         reward: store.loyaltyEnabled ? reward : null,
+        online: onlineMethods(store),
       }}
       customer={
         customer && {
           name: customer.name,
           phone: formatPhone(customer.phone),
           marketingOptIn: customer.marketingOptIn,
+          cpfCnpj: customer.cpfCnpj,
           addresses: addresses.map((a) => ({ id: a.id, address: a.address })),
           loyalty,
         }

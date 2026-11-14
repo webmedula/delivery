@@ -12,6 +12,10 @@ import { requireStoreUser } from "@/lib/auth";
 import { parseBRLToCents } from "@/lib/money";
 import { cancelStoreSubscription, subscribeStore } from "@/lib/billing";
 import { normalizeCouponCode } from "@/lib/discounts";
+import { createStoreSubaccount, setOnlineMethods } from "@/lib/payments";
+import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
+import { asaasSandbox } from "@/lib/asaas";
+import { canEnableOnlinePayments } from "@/lib/payment-events";
 
 const ORDER_STATUSES: OrderStatus[] = [
   "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED", "CANCELED",
@@ -239,5 +243,65 @@ export async function updateLoyalty(_: PromoState, formData: FormData): Promise<
     },
   });
   revalidatePath("/painel", "layout");
+  return { ok: true };
+}
+
+// --- Pagamento online (subconta Asaas da loja) ---
+
+export type PaymentAccountState = { error?: string; ok?: boolean } | undefined;
+
+const COMPANY_TYPES = ["MEI", "LIMITED", "INDIVIDUAL", "ASSOCIATION"] as const;
+
+export async function createPaymentAccount(_: PaymentAccountState, formData: FormData): Promise<PaymentAccountState> {
+  const { storeId, user } = await requireStoreUser();
+  const get = (k: string) => String(formData.get(k) ?? "").trim();
+
+  const cpfCnpj = normalizeCpfCnpj(get("cpfCnpj"));
+  if (!cpfCnpj) return { error: "CPF ou CNPJ inválido." };
+  const isCompany = cpfCnpj.length === 14;
+  const name = get("name");
+  if (name.length < 3) return { error: isCompany ? "Informe a razão social." : "Informe o nome completo." };
+  const email = get("email").toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "E-mail inválido." };
+  const birthDate = get("birthDate");
+  if (!isCompany && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return { error: "Informe a data de nascimento." };
+  const companyType = get("companyType") as (typeof COMPANY_TYPES)[number];
+  if (isCompany && !COMPANY_TYPES.includes(companyType)) return { error: "Escolha o tipo de empresa." };
+  const mobilePhone = get("mobilePhone").replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+  if (mobilePhone.length < 10 || mobilePhone.length > 11) return { error: "Celular inválido. Use DDD + número." };
+  const incomeCents = parseBRLToCents(get("income"));
+  if (!incomeCents) return { error: isCompany ? "Informe o faturamento mensal." : "Informe a renda mensal." };
+  const postalCode = get("postalCode").replace(/\D/g, "");
+  if (postalCode.length !== 8) return { error: "CEP inválido." };
+  if (!get("address") || !get("addressNumber") || !get("province")) return { error: "Preencha endereço, número e bairro." };
+
+  const result = await createStoreSubaccount(storeId, {
+    name,
+    email,
+    cpfCnpj,
+    ...(isCompany ? { companyType } : { birthDate }),
+    mobilePhone,
+    incomeValue: incomeCents / 100,
+    address: get("address"),
+    addressNumber: get("addressNumber"),
+    complement: get("complement") || undefined,
+    province: get("province"),
+    postalCode,
+  });
+  if (!result.ok) return { error: result.error };
+  console.info(`[pagamentos] subconta criada para a loja ${storeId} por ${user.email}`);
+  revalidatePath("/painel/pagamentos");
+  return { ok: true };
+}
+
+export async function updateOnlineMethods(_: PaymentAccountState, formData: FormData): Promise<PaymentAccountState> {
+  const { store } = await requireStoreUser();
+  const pix = formData.get("pix") === "on";
+  const card = formData.get("card") === "on";
+  if ((pix || card) && !canEnableOnlinePayments(store, asaasSandbox()))
+    return { error: "Sua conta de recebimento ainda não foi aprovada pelo Asaas." };
+  const result = await setOnlineMethods(store, pix, card);
+  if (!result.ok) return { error: result.error };
+  revalidatePath("/painel/pagamentos");
   return { ok: true };
 }

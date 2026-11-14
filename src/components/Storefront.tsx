@@ -15,11 +15,15 @@ type StoreInfo = {
   loyalty: string | null;
   /** Desconto da recompensa de fidelidade, para calcular o total na sacola. */
   reward: { type: "PERCENT" | "FIXED"; value: number } | null;
+  /** Formas de pagamento online (Asaas) ligadas pela loja. */
+  online: { pix: boolean; card: boolean };
 };
+type Payment = "ONLINE_PIX" | "ONLINE_CARD" | "PIX" | "CASH" | "CARD_ON_DELIVERY";
 export type CustomerInfo = {
   name: string;
   phone: string; // formatado
   marketingOptIn: boolean;
+  cpfCnpj: string | null;
   addresses: { id: string; address: string }[];
   loyalty: { stamps: number; ordersRequired: number; rewardAvailable: boolean } | null;
 };
@@ -35,7 +39,15 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
   const [fulfillment, setFulfillment] = useState<"DELIVERY" | "PICKUP">(store.acceptsDelivery ? "DELIVERY" : "PICKUP");
-  const [payment, setPayment] = useState<"PIX" | "CASH" | "CARD_ON_DELIVERY">("PIX");
+  // Com Pix online ligado, ele substitui o Pix pela chave (que exige conferência manual).
+  const paymentOptions: { value: Payment; label: string }[] = [
+    ...(store.online.pix ? [{ value: "ONLINE_PIX" as const, label: "Pix (pague agora)" }] : [{ value: "PIX" as const, label: "Pix" }]),
+    ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: "Cartão de crédito (pague agora)" }] : []),
+    { value: "CASH", label: "Dinheiro" },
+    { value: "CARD_ON_DELIVERY", label: "Cartão na entrega" },
+  ];
+  const [payment, setPayment] = useState<Payment>(paymentOptions[0].value);
+  const payOnline = payment === "ONLINE_PIX" || payment === "ONLINE_CARD";
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [addressChoice, setAddressChoice] = useState<string>(customer?.addresses[0]?.id ?? "new");
@@ -99,6 +111,7 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
           (addressChoice !== "new" ? customer?.addresses.find((a) => a.id === addressChoice)?.address : String(form.get("address") ?? "")) ||
           undefined,
         paymentMethod: payment,
+        cpfCnpj: payOnline ? String(form.get("cpfCnpj") ?? "") : undefined,
         changeFor: String(form.get("changeFor") ?? "") || undefined,
         notes: String(form.get("notes") ?? "") || undefined,
         useReward: rewardActive,
@@ -253,12 +266,18 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
 
             <div>
               <p className="label">Pagamento</p>
-              <select className="input" value={payment} onChange={(e) => setPayment(e.target.value as typeof payment)}>
-                <option value="PIX">Pix</option>
-                <option value="CASH">Dinheiro</option>
-                <option value="CARD_ON_DELIVERY">Cartão na entrega</option>
+              <select className="input" value={payment} onChange={(e) => setPayment(e.target.value as Payment)}>
+                {paymentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
+            {payOnline && (
+              <div>
+                <input name="cpfCnpj" placeholder="Seu CPF" className="input" inputMode="numeric" defaultValue={customer?.cpfCnpj ?? ""} required />
+                <p className="mt-1 text-xs text-stone-500">
+                  Exigido para o pagamento. {payment === "ONLINE_PIX" ? "O QR Code do Pix aparece na próxima tela." : "Você digita os dados do cartão na próxima tela, em ambiente seguro do Asaas."}
+                </p>
+              </div>
+            )}
             {payment === "CASH" && <input name="changeFor" placeholder="Troco para quanto? (opcional)" className="input" inputMode="decimal" />}
             <textarea name="notes" placeholder="Observações (opcional)" className="input" rows={2} />
 
@@ -304,7 +323,7 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
             </div>
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <button className="btn w-full py-3 text-base" disabled={pending || subtotal < store.minOrderCents}>
-              {pending ? "Enviando..." : "Fazer pedido"}
+              {pending ? "Enviando..." : payOnline ? "Fazer pedido e pagar" : "Fazer pedido"}
             </button>
           </form>
         </div>

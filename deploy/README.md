@@ -16,6 +16,7 @@ Há dois caminhos: **Easypanel** (mais simples, logo abaixo) ou **CyberPanel com
      ASAAS_API_KEY=<chave do Asaas SEM o "$" inicial, começando em aact_>
      ASAAS_BASE_URL=https://api-sandbox.asaas.com/v3
      ASAAS_WEBHOOK_TOKEN=<texto aleatório que você inventa>
+     APP_URL=https://app.webtenda.com.br
      ADMIN_EMAILS=<seu e-mail de login; mais de um, separe por vírgula>
      ```
    - **Domains:** adicione `app.webtenda.com.br`, porta `3000`. O DNS (registro A de `app`) precisa apontar para o IP do VPS.
@@ -102,6 +103,23 @@ livre para a página de vendas.
 3. Coloque a chave em `ASAAS_API_KEY` (entre aspas simples) e reinicie: `./deploy/update.sh`
 4. Teste: entre no painel de uma loja > **Assinatura** > informe um CPF > **Assinar**. No sandbox dá para marcar a cobrança como recebida pelo painel do Asaas; a loja deve passar para "Ativa".
 5. Para valer: troque a chave pela de produção e `ASAAS_BASE_URL` por `https://api.asaas.com/v3`, e cadastre o webhook também na conta de produção.
+
+### Pagamento online das lojas (subcontas)
+
+Cada loja cria em **Painel > Pagamento online** a própria conta de recebimento: o sistema abre uma
+**subconta** no Asaas com a chave da plataforma, e as cobranças dos pedidos (Pix e cartão) são feitas
+na subconta. O dinheiro cai direto na conta da loja; a WebTenda não fica com nada (sem split).
+
+- Não precisa cadastrar webhook à mão: cada subconta já nasce com um webhook para
+  `APP_URL/api/payments/webhook`, usando o mesmo `ASAAS_WEBHOOK_TOKEN`. Por isso `APP_URL` e o token
+  precisam estar certos **antes** de a primeira loja criar a conta.
+- A chave de API de cada subconta só é devolvida uma vez e fica salva criptografada com
+  `PAYMENTS_ENCRYPTION_KEY` (opcional) ou, se não houver, com `AUTH_SECRET`. **Não troque esse segredo
+  depois que houver lojas com conta criada**, senão as chaves salvas deixam de abrir.
+- Em produção, o pagamento online só liga depois que o Asaas aprova a conta da loja (documentos enviados
+  pelos links que aparecem no painel). No sandbox liga logo, para testar.
+- No sandbox, para simular o pagamento, abra a cobrança na subconta pelo painel do Asaas ou use o link da
+  fatura e confirme o pagamento de teste.
 
 ## 5. Backup
 
