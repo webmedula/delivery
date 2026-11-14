@@ -139,7 +139,7 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
           <div className="flex items-center gap-3">
             {store.logoUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={store.logoUrl} alt="" className="h-16 w-16 flex-none rounded-2xl object-cover shadow-md" />
+              <img src={store.logoUrl} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="h-16 w-16 flex-none rounded-2xl object-cover shadow-md" />
             )}
             <h1 className="text-2xl font-bold">{store.name}</h1>
           </div>
@@ -181,7 +181,7 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
               <li key={p.id} className="flex gap-3 p-3">
                 {p.imageUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.imageUrl} alt="" className="h-20 w-20 flex-none rounded-lg object-cover" />
+                  <img src={p.imageUrl} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="h-20 w-20 flex-none rounded-lg object-cover" />
                 )}
                 <div className="flex-1">
                   <p className="font-medium">{p.name}</p>
