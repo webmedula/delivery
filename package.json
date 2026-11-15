@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@fontsource-variable/outfit": "^5.3.0",
+    "@fontsource/outfit": "^5.3.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.2",
     "jose": "^6.1.0",

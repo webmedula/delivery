@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { formatBRL } from "@/lib/money";
 import { placeOrder, previewCoupon } from "@/app/loja/[slug]/actions";
 import { guessZone } from "@/lib/delivery";
+import { InstallInvite } from "@/components/InstallApp";
 
 type Product = { id: string; name: string; description: string | null; priceCents: number; imageUrl: string | null };
 type Section = { id: string; name: string; products: Product[] };
@@ -245,6 +246,8 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
             <span className="text-2xl leading-none text-white transition group-hover:translate-x-0.5" aria-hidden>›</span>
           </Link>
         )}
+
+        <InstallInvite slug={store.slug} name={store.name} logoUrl={store.logoUrl} />
 
         {sections.length > 1 && <CategoryNav sections={sections} />}
 
