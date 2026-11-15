@@ -317,6 +317,13 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   await tx.deliveryZone.createMany({ data: zones });
   const zoneOf = (address: string) => zones.find((z) => address.endsWith(`- ${z.name}`)) ?? zones[0];
 
+  // Entregadores (telefone com DDD 00, como os clientes). Link fixo para a demo: /entregador/demo-<slug>-leo
+  const couriers = [
+    { id: `${storeId}-k0`, storeId, name: "Leo Martins", phone: `0099${String(7000000 + demo.key.length * 11).padStart(7, "0")}`, token: `demo-${demo.slug}-leo` },
+    { id: `${storeId}-k1`, storeId, name: "Duda Ferreira", phone: `0099${String(7100000 + demo.key.length * 11).padStart(7, "0")}`, token: `demo-${demo.slug}-duda` },
+  ];
+  await tx.courier.createMany({ data: couriers });
+
   // Cardápio
   const products: { id: string; name: string; priceCents: number }[] = [];
   let position = 0;
@@ -439,6 +446,12 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       ? minutes(d.status === "COMPLETED" ? Math.round(total0 * 0.6) : Math.max(4, Math.round((now.getTime() - d.at.getTime()) / 60_000) - 3))
       : null;
     const completedAt = d.status === "COMPLETED" ? minutes(total0) : null;
+    const courier =
+      fulfillment !== "DELIVERY" ? null
+      : d.status === "OUT_FOR_DELIVERY" ? couriers[0]
+      : d.status === "PREPARING" ? couriers[1]
+      : d.status === "COMPLETED" ? couriers[rand() < 0.6 ? 0 : 1]
+      : null;
     let discountCents = 0;
     let couponCode: string | null = null;
     const first = !seen.has(d.customer.id);
@@ -467,6 +480,8 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       deliveryZoneName: zone?.name ?? null,
       etaMinutesMin: etaMin ?? null,
       etaMinutesMax: etaMax ?? null,
+      courierId: courier?.id ?? null,
+      courierName: courier?.name ?? null,
       acceptedAt,
       dispatchedAt,
       completedAt,
