@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { orderStatusLabel, paymentLabel } from "@/lib/order-status";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { InstallInvite } from "@/components/InstallApp";
 import { PixPayment } from "@/components/PixPayment";
 import { getPixQrCode, syncOrderPayment } from "@/lib/payments";
 import { cancelUnpaidOrder } from "../../actions";
@@ -130,6 +131,7 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
           Avisar a loja no WhatsApp
         </a>
       )}
+      {!awaiting && order.status !== "CANCELED" && <InstallInvite slug={slug} name={store.name} logoUrl={store.logoUrl} compact />}
       <Link href={`/loja/${slug}`} className="btn-ghost w-full">Voltar ao cardápio</Link>
       {suggestPin ? (
         <Link href={`/loja/${slug}/conta`} className="card block space-y-1 border-brand-100 bg-brand-50 text-sm text-brand-700">
