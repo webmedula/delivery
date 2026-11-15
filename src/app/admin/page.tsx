@@ -68,7 +68,7 @@ export default async function AdminHome() {
         <div>
           <h2 className="font-semibold">Lojas demo</h2>
           <p className="text-sm text-stone-500">
-            Para apresentar o sistema. Não têm cobrança nem pagamento online e não entram nos números acima.
+            Para apresentar o sistema. Não têm cobrança nem pagamento online e não entram nos números acima. São recriadas sozinhas todo dia às {process.env.DEMO_RESET_HOUR ?? 4}h (horário de Brasília), desfazendo o que visitantes mexerem.
             Senha do painel: a da variável DEMO_PASSWORD ({DEFAULT_DEMO_PASSWORD} se não estiver definida).
           </p>
         </div>

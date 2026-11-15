@@ -186,11 +186,17 @@ que apaga tudo o que foi feito nelas e gera os dados de novo, com os pedidos em 
 Pelo terminal do serviço `app` no Easypanel também dá: `npm run demo` (recria) ou
 `npm run demo -- --remove` (apaga).
 
+**Recriação automática:** todo dia às 4h (horário de Brasília) o próprio app recria as lojas demo,
+desfazendo o que visitantes mexerem no painel (o login demo fica público no site). Só acontece se as
+lojas demo já existirem; se o app estiver fora do ar às 4h, recria quando voltar, uma vez por dia.
+
 **Variáveis opcionais (Environment do app):**
 
 ```
 DEMO_STORES=1                 # cria as lojas demo que faltarem sempre que o app sobe
 DEMO_PASSWORD=<senha>         # senha do painel das lojas demo (padrão demo1234)
+DEMO_RESET_HOUR=4             # hora da recriação automática (Brasília)
+DEMO_AUTO_RESET=0             # desliga a recriação automática
 DEMO_WHATSAPP=55119XXXXXXXX   # WhatsApp que recebe os pedidos de teste; sem ela o botão some
 ```
 
