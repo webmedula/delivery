@@ -8,6 +8,8 @@ import { placeOrder, previewCoupon } from "@/app/loja/[slug]/actions";
 import { guessZone } from "@/lib/delivery";
 import { InstallInvite } from "@/components/InstallApp";
 import { colorSwatch } from "@/lib/variants";
+import { REGIONS, type ShippingMethodRow } from "@/lib/shipping";
+import { ShippingFields, emptyShipping, quoteShippingForm, type ShippingConfig, type ShippingForm } from "@/components/ShippingFields";
 
 type Variant = { id: string; color: string | null; size: string | null; stock: number | null; priceCents: number | null };
 export type Product = {
@@ -38,6 +40,8 @@ type StoreInfo = {
   grid?: boolean;
   /** A loja fecha pedidos pelo WhatsApp (pagamento combinado na conversa). */
   whatsappCheckout?: boolean;
+  /** Envio pelos Correios/transportadora com a tabela de frete da loja (null = não envia). */
+  shipping?: ShippingConfig | null;
   /** Textos do tipo de loja. */
   terms?: { catalog: string; catalogLower: string; emptyCatalog: string; poweredBy: string };
 };
@@ -71,19 +75,27 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
   const storageKey = `cart:${store.slug}`;
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
-  const [fulfillment, setFulfillment] = useState<"DELIVERY" | "PICKUP">(
+  const [fulfillment, setFulfillment] = useState<"DELIVERY" | "PICKUP" | "SHIPPING">(
     // Na loja de roupas, retirar na loja é o mais comum; no delivery, a entrega.
-    store.acceptsDelivery && !(store.grid && store.acceptsPickup) ? "DELIVERY" : "PICKUP",
+    store.acceptsDelivery && !(store.grid && store.acceptsPickup) ? "DELIVERY" : store.acceptsPickup ? "PICKUP" : store.shipping ? "SHIPPING" : "PICKUP",
   );
+  const [shipForm, setShipForm] = useState<ShippingForm>(emptyShipping);
+  const shipKey = `envio:${store.slug}`;
   // Com Pix online ligado, ele substitui o Pix pela chave (que exige conferência manual).
   const paymentOptions: { value: Payment; label: string }[] = [
     ...(store.whatsappCheckout ? [{ value: "WHATSAPP" as const, label: "Combinar pelo WhatsApp" }] : []),
     ...(store.online.pix ? [{ value: "ONLINE_PIX" as const, label: "Pix (pague agora)" }] : [{ value: "PIX" as const, label: "Pix" }]),
     ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: "Cartão de crédito (pague agora)" }] : []),
-    { value: "CASH", label: "Dinheiro" },
-    { value: "CARD_ON_DELIVERY", label: store.grid ? "Cartão na entrega ou retirada" : "Cartão na entrega" },
+    // Pedido enviado pelo correio não tem como pagar na porta.
+    ...(fulfillment === "SHIPPING"
+      ? []
+      : [
+          { value: "CASH" as const, label: "Dinheiro" },
+          { value: "CARD_ON_DELIVERY" as const, label: store.grid ? "Cartão na entrega ou retirada" : "Cartão na entrega" },
+        ]),
   ];
-  const [payment, setPayment] = useState<Payment>(paymentOptions[0].value);
+  const [paymentChoice, setPayment] = useState<Payment>(paymentOptions[0].value);
+  const payment = paymentOptions.some((o) => o.value === paymentChoice) ? paymentChoice : paymentOptions[0].value;
   const payOnline = payment === "ONLINE_PIX" || payment === "ONLINE_CARD";
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -114,6 +126,13 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(cart)); } catch {}
   }, [cart, storageKey]);
+  // Endereço de envio fica guardado neste aparelho para a próxima compra.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(shipKey);
+      if (saved) setShipForm({ ...emptyShipping, ...JSON.parse(saved), methodId: "" });
+    } catch {}
+  }, [shipKey]);
 
   const products = useMemo(() => new Map(sections.flatMap((s) => s.products).map((p) => [p.id, p])), [sections]);
   const lines = Object.entries(cart)
@@ -133,7 +152,11 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
       }];
     });
   const subtotal = lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0);
-  const fee = fulfillment !== "DELIVERY" ? 0 : hasZones ? (zone?.feeCents ?? 0) : store.deliveryFeeCents;
+  const shipQuote = quoteShippingForm(fulfillment === "SHIPPING" ? store.shipping : null, shipForm, subtotal);
+  const fee =
+    fulfillment === "SHIPPING" ? (shipQuote.selected?.feeCents ?? 0)
+    : fulfillment !== "DELIVERY" ? 0
+    : hasZones ? (zone?.feeCents ?? 0) : store.deliveryFeeCents;
   const count = lines.reduce((s, l) => s + l.quantity, 0);
   const rewardActive = useReward && !!customer?.loyalty?.rewardAvailable;
   // O desconto do cupom é recalculado no servidor; aqui só mostramos a prévia.
@@ -168,6 +191,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
         customerPhone: phone,
         fulfillment,
         deliveryZoneId: fulfillment === "DELIVERY" && zoneId ? zoneId : undefined,
+        shipping: fulfillment === "SHIPPING" ? shipForm : undefined,
         address:
           (addressChoice !== "new" ? customer?.addresses.find((a) => a.id === addressChoice)?.address : String(form.get("address") ?? "")) ||
           undefined,
@@ -181,6 +205,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
       });
       if (!result.ok) return setError(result.error);
       setCart({});
+      if (fulfillment === "SHIPPING") try { localStorage.setItem(shipKey, JSON.stringify({ ...shipForm, methodId: "" })); } catch {}
       // Pedido para fechar no WhatsApp: a página do pedido abre a conversa com a mensagem pronta.
       router.push(`/loja/${store.slug}/pedido/${result.orderId}${result.whatsappUrl ? "?enviar=1" : ""}`);
     });
@@ -193,6 +218,8 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
       text: `Entrega ${deliveryFeeText(store)}${store.eta.delivery ? ` · ${store.eta.delivery}` : ""}`,
     },
     store.acceptsPickup && { icon: <IconBag />, text: `${store.grid ? "Retirada na loja" : "Retirada no local"}${store.eta.pickup ? ` · ${store.eta.pickup}` : ""}` },
+    store.shipping && { icon: <IconBox />, text: `Envio para ${shippingReach(store.shipping)}` },
+    store.shipping?.freeAboveCents && { icon: <IconBox />, text: `Frete grátis acima de ${formatBRL(store.shipping.freeAboveCents)}` },
     store.whatsappCheckout && { icon: <IconChat />, text: "Pedido pelo WhatsApp" },
     store.minOrderCents > 0 && { icon: <IconReceipt />, text: `Mínimo ${formatBRL(store.minOrderCents)}` },
   ].filter(Boolean) as { icon: React.ReactNode; text: string }[];
@@ -400,11 +427,14 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
               {store.acceptsPickup && (
                 <button type="button" onClick={() => setFulfillment("PICKUP")} className={fulfillment === "PICKUP" ? "btn flex-1" : "btn-ghost flex-1"}>Retirar</button>
               )}
+              {store.shipping && (
+                <button type="button" onClick={() => setFulfillment("SHIPPING")} className={fulfillment === "SHIPPING" ? "btn flex-1" : "btn-ghost flex-1"}>Envio</button>
+              )}
             </div>
             {fulfillment === "PICKUP" && store.address && <p className="text-sm text-stone-600">Retirada em: {store.address}</p>}
             {payment === "WHATSAPP" && (
               <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
-                Ao enviar, abrimos o WhatsApp da loja com o seu pedido pronto. Vocês combinam o pagamento{store.acceptsDelivery ? " e a entrega" : ""} por lá.
+                Ao enviar, abrimos o WhatsApp da loja com o seu pedido pronto. Vocês combinam o pagamento{fulfillment === "DELIVERY" ? " e a entrega" : ""} por lá.
               </p>
             )}
 
@@ -453,6 +483,9 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
             {fulfillment === "DELIVERY" && (addressChoice === "new" || !customer?.addresses.length) && (
               <textarea name="address" placeholder="Endereço completo (rua, número, bairro, referência)" className="input" rows={2} required />
             )}
+            {fulfillment === "SHIPPING" && store.shipping && (
+              <ShippingFields config={store.shipping} value={shipForm} onChange={setShipForm} subtotalCents={subtotal} />
+            )}
             {fulfillment === "DELIVERY" && hasZones && (
               <div>
                 <label className="label" htmlFor="zone">Seu bairro</label>
@@ -465,7 +498,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
                 <p className="mt-1 text-xs text-stone-500">Seu bairro não está na lista? Fale com a loja antes de pedir.</p>
               </div>
             )}
-            {(fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup) && (
+            {fulfillment !== "SHIPPING" && (fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup) && (
               <p className="text-sm text-stone-600">
                 ⏱ {fulfillment === "DELIVERY" ? "Entrega" : "Fica pronto"} em {fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup}
               </p>
@@ -525,6 +558,12 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
                   <span>{hasZones && !zone ? "escolha o bairro" : formatBRL(fee)}</span>
                 </div>
               )}
+              {fulfillment === "SHIPPING" && (
+                <div className="flex justify-between">
+                  <span>Frete{shipQuote.selected ? ` (${shipQuote.selected.name})` : ""}</span>
+                  <span>{!shipQuote.selected ? "informe o CEP" : shipQuote.selected.free ? "grátis" : formatBRL(fee)}</span>
+                </div>
+              )}
               {discount > 0 && (
                 <div className="flex justify-between text-green-700">
                   <span>{rewardActive ? "Recompensa de fidelidade" : `Cupom ${coupon?.code}`}</span><span>−{formatBRL(discount)}</span>
@@ -536,7 +575,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <button
               className={`btn w-full py-3 text-base ${payment === "WHATSAPP" ? "bg-[#1f9d55]! hover:bg-[#188a49]!" : ""}`}
-              disabled={pending || lines.length === 0 || subtotal < store.minOrderCents}
+              disabled={pending || lines.length === 0 || subtotal < store.minOrderCents || (fulfillment === "SHIPPING" && !shipQuote.selected)}
             >
               {pending ? "Enviando..." : payment === "WHATSAPP" ? "Enviar pedido pelo WhatsApp" : payOnline ? "Fazer pedido e pagar" : "Fazer pedido"}
             </button>
@@ -559,6 +598,16 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
       )}
     </div>
   );
+}
+
+/** "todo o Brasil", "SP" ou "Sudeste e Sul". */
+function shippingReach(cfg: ShippingConfig) {
+  const active = cfg.methods.filter((m) => m.active);
+  const has = (k: keyof ShippingMethodRow) => active.some((m) => m[k] !== null);
+  const regions = REGIONS.filter((r) => has(`${r.key}Cents` as keyof ShippingMethodRow));
+  if (regions.length === REGIONS.length) return "todo o Brasil";
+  if (regions.length === 0) return cfg.originUf ?? "o seu estado";
+  return regions.map((r) => r.label).join(", ").replace(/, ([^,]*)$/, " e $1");
 }
 
 function deliveryFeeText(store: StoreInfo) {
@@ -709,6 +758,14 @@ function IconUser() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" />
+    </svg>
+  );
+}
+
+function IconBox() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z" /><path d="m3 8 9 5 9-5M12 13v8" />
     </svg>
   );
 }

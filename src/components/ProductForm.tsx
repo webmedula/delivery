@@ -4,6 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { saveProduct } from "@/app/painel/actions";
 import { SIZE_PRESETS } from "@/lib/niche";
 import { colorSwatch, compareSizes, splitList } from "@/lib/variants";
+import { PhotoPicker } from "./PhotoPicker";
 
 export type EditableVariant = { id: string; color: string | null; size: string | null; stock: number | null; priceCents: number | null; active: boolean };
 export type EditableProduct = {
@@ -57,6 +58,7 @@ export function ProductForm({
   });
   const [showPrices, setShowPrices] = useState(() => !!product?.variants.some((v) => v.priceCents !== null));
   const [fillAll, setFillAll] = useState("");
+  const [photos, setPhotos] = useState<string[]>(() => [product?.imageUrl, ...(product?.images ?? [])].filter((u): u is string => !!u));
 
   const colors = splitList(colorsText);
   const sortedSizes = [...sizes].sort(compareSizes);
@@ -79,6 +81,7 @@ export function ProductForm({
       setColorsText("");
       setSizes([]);
       setCells({});
+      setPhotos([]);
     }
     onSaved?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,15 +121,11 @@ export function ProductForm({
         </select>
       </div>
       <div>
-        <label className="label" htmlFor="p-img">Foto principal (link)</label>
-        <input id="p-img" name="imageUrl" placeholder="https://..." className="input" defaultValue={product?.imageUrl ?? ""} />
+        <p className="label">{withVariants ? "Fotos (a primeira é a principal, até 9)" : "Foto"}</p>
+        <PhotoPicker value={photos} onChange={setPhotos} max={withVariants ? 9 : 1} shape={withVariants ? "portrait" : "square"} />
+        <input type="hidden" name="imageUrl" value={photos[0] ?? ""} />
+        <input type="hidden" name="images" value={photos.slice(1).join("\n")} />
       </div>
-      {withVariants && (
-        <div>
-          <label className="label" htmlFor="p-imgs">Mais fotos (um link por linha, até 8)</label>
-          <textarea id="p-imgs" name="images" className="input font-mono text-xs" rows={3} defaultValue={product?.images.join("\n") ?? ""} placeholder={"https://...\nhttps://..."} />
-        </div>
-      )}
 
       {withVariants && (
         <fieldset className="space-y-3 rounded-xl border border-stone-200 p-3">

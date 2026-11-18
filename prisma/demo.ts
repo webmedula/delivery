@@ -45,7 +45,24 @@ type DemoStore = {
   whatsappCheckout?: boolean;
   payments?: PaymentMethod[];
   notes?: (string | null)[];
+  /** Envio pelos Correios: estado de origem, frete grátis e formas de envio (preços em centavos). */
+  shipping?: {
+    originUf: string;
+    freeAboveCents: number | null;
+    methods: { name: string; prices: [same: number, se: number, s: number, co: number, ne: number, n: number]; days: [number, number] }[];
+  };
 };
+
+// Destinos dos pedidos enviados pelos Correios nas lojas demo.
+const SHIP_DESTINATIONS: { address: string; cep: string; uf: string }[] = [
+  { address: "Rua Barão de Jaguara, 900, apto 41 - Centro, Campinas/SP - CEP 13015-001", cep: "13015001", uf: "SP" },
+  { address: "Rua da Bahia, 1148 - Centro, Belo Horizonte/MG - CEP 30160-011", cep: "30160011", uf: "MG" },
+  { address: "Rua XV de Novembro, 700, sala 3 - Centro, Curitiba/PR - CEP 80020-310", cep: "80020310", uf: "PR" },
+  { address: "Av. Sete de Setembro, 1500 - Centro, Salvador/BA - CEP 40060-001", cep: "40060001", uf: "BA" },
+  { address: "Rua dos Andradas, 1200 - Centro Histórico, Porto Alegre/RS - CEP 90020-008", cep: "90020008", uf: "RS" },
+  { address: "Av. Goiás, 500 - Setor Central, Goiânia/GO - CEP 74005-010", cep: "74005010", uf: "GO" },
+];
+const UF_REGION_INDEX: Record<string, number> = { SP: 1, RJ: 1, MG: 1, ES: 1, PR: 2, SC: 2, RS: 2, DF: 3, GO: 3, MT: 3, MS: 3, BA: 4, PE: 4, CE: 4, AM: 5, PA: 5 };
 
 // Fotos gratuitas do Unsplash (licença Unsplash: uso comercial liberado, sem atribuição obrigatória),
 // carregadas direto do CDN deles, como o Unsplash pede.
@@ -243,6 +260,14 @@ export const DEMO_STORES: DemoStore[] = [
       { code: "BEMVINDA10", type: "PERCENT", value: 10, firstOrderOnly: true },
       { code: "LIQUIDA20", type: "PERCENT", value: 20, minOrderCents: 25000, expiresInDays: 10 },
     ],
+    shipping: {
+      originUf: "SP",
+      freeAboveCents: 29900,
+      methods: [
+        { name: "PAC", prices: [1890, 2490, 2890, 3490, 3990, 4590], days: [3, 9] },
+        { name: "SEDEX", prices: [2690, 3590, 4190, 4890, 5590, 6490], days: [1, 4] },
+      ],
+    },
     campaign: { name: "Liquida de estação", message: "Oi {nome}! Chegou a liquida da {loja}: 20% off acima de R$ 250 com o cupom {cupom}. Veja as peças: {link}", coupon: "LIQUIDA20" },
     orders: 38,
     itemsPerOrder: [1, 3],
@@ -364,6 +389,9 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       acceptsPickup: demo.acceptsPickup,
       businessType: demo.businessType ?? "FOOD",
       whatsappCheckout: demo.whatsappCheckout ?? false,
+      acceptsShipping: !!demo.shipping,
+      shippingOriginUf: demo.shipping?.originUf ?? null,
+      shippingFreeAboveCents: demo.shipping?.freeAboveCents ?? null,
       planId,
       subscriptionStatus: "ACTIVE",
       currentPeriodEnd: FAR_FUTURE,
@@ -381,6 +409,13 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   const zones = DEMO_ZONES.map(([name, extra], i) => ({ id: `${storeId}-z${i}`, storeId, name, feeCents: demo.deliveryFeeCents + extra }));
   await tx.deliveryZone.createMany({ data: zones });
   const zoneOf = (address: string) => zones.find((z) => address.endsWith(`- ${z.name}`)) ?? zones[0];
+
+  // Formas de envio (Correios)
+  const shipMethods = (demo.shipping?.methods ?? []).map((m, i) => ({
+    id: `${storeId}-s${i}`, storeId, name: m.name, position: i, daysMin: m.days[0], daysMax: m.days[1],
+    sameStateCents: m.prices[0], southeastCents: m.prices[1], southCents: m.prices[2], midwestCents: m.prices[3], northeastCents: m.prices[4], northCents: m.prices[5],
+  }));
+  if (shipMethods.length) await tx.shippingMethod.createMany({ data: shipMethods });
 
   // Entregadores (telefone com DDD 00, como os clientes). Link fixo para a demo: /entregador/demo-<slug>-leo
   const couriers = [
@@ -515,10 +550,21 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       subtotal += p.priceCents * quantity;
       items.push({ orderId: id, productId: p.id, variantId: p.variantId ?? null, variantLabel: p.variantLabel ?? null, name: p.name, unitPriceCents: p.priceCents, quantity });
     }
-    const fulfillment: FulfillmentType =
+    let fulfillment: FulfillmentType =
       d.status === "READY_FOR_PICKUP" || (d.status !== "OUT_FOR_DELIVERY" && demo.acceptsPickup && rand() < 0.2) ? "PICKUP" : "DELIVERY";
+    // Loja que envia: parte dos pedidos vai pelos Correios para outras cidades.
+    if (shipMethods.length && fulfillment === "DELIVERY" && rand() < 0.45) fulfillment = "SHIPPING";
+    const dest = fulfillment === "SHIPPING" ? pick(SHIP_DESTINATIONS) : null;
+    const shipMethod = dest ? pick(shipMethods) : null;
+    const shipFee = (() => {
+      if (!dest || !shipMethod) return 0;
+      const prices = demo.shipping!.methods[shipMethod.position].prices;
+      const table = dest.uf === demo.shipping!.originUf ? prices[0] : prices[UF_REGION_INDEX[dest.uf] ?? 1];
+      const cheapest = shipMethod.position === 0;
+      return cheapest && demo.shipping!.freeAboveCents && subtotal >= demo.shipping!.freeAboveCents ? 0 : table;
+    })();
     const zone = fulfillment === "DELIVERY" ? zoneOf(d.customer.address) : null;
-    const fee = zone?.feeCents ?? 0;
+    const fee = dest ? shipFee : (zone?.feeCents ?? 0);
     const eta = DEMO_ETA[demo.key];
     const [etaMin, etaMax] = fulfillment === "DELIVERY" ? [eta?.[0], eta?.[1]] : [eta?.[2], eta?.[3]];
     // Datas de cada etapa: histórico concluído em um tempo realista; os em andamento até a etapa atual.
@@ -529,7 +575,13 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     const dispatchedAt = reached(["OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED"])
       ? minutes(d.status === "COMPLETED" ? Math.round(total0 * 0.6) : Math.max(4, Math.round((now.getTime() - d.at.getTime()) / 60_000) - 3))
       : null;
-    const completedAt = d.status === "COMPLETED" ? minutes(total0) : null;
+    let completedAt = d.status === "COMPLETED" ? minutes(total0) : null;
+    let shippedAt = dispatchedAt;
+    if (dest && d.status === "COMPLETED") {
+      // Envio: postado no dia seguinte, chega alguns dias depois (sem passar de agora).
+      shippedAt = minutes(between(14, 30) * 60);
+      completedAt = new Date(Math.min(d.at.getTime() + between(3, 7) * DAY, now.getTime() - 3_600_000));
+    }
     const courier =
       fulfillment !== "DELIVERY" ? null
       : d.status === "OUT_FOR_DELIVERY" ? couriers[0]
@@ -546,7 +598,8 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       const c = demo.coupons.find((x) => x.code === couponCode)!;
       discountCents = discount(c.type, c.value, subtotal);
     }
-    const paymentMethod: PaymentMethod = pick(demo.payments ?? ["PIX", "PIX", "CARD_ON_DELIVERY", "CARD_ON_DELIVERY", "CASH"]);
+    let paymentMethod: PaymentMethod = pick(demo.payments ?? ["PIX", "PIX", "CARD_ON_DELIVERY", "CARD_ON_DELIVERY", "CASH"]);
+    if (dest && (paymentMethod === "CASH" || paymentMethod === "CARD_ON_DELIVERY")) paymentMethod = "PIX";
     const total = subtotal + fee - discountCents;
     orders.push({
       id,
@@ -559,15 +612,22 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       customerId: d.customer.id,
       customerName: d.customer.name,
       customerPhone: d.customer.phone,
-      address: fulfillment === "DELIVERY" ? d.customer.address : null,
+      address: fulfillment === "DELIVERY" ? d.customer.address : dest?.address ?? null,
+      shippingMethodId: shipMethod?.id ?? null,
+      shippingMethodName: shipMethod?.name ?? null,
+      shippingCep: dest?.cep ?? null,
+      shippingUf: dest?.uf ?? null,
+      shippingDaysMin: shipMethod?.daysMin ?? null,
+      shippingDaysMax: shipMethod?.daysMax ?? null,
+      trackingCode: dest && (d.status === "OUT_FOR_DELIVERY" || d.status === "COMPLETED") ? `Q${String.fromCharCode(65 + (i % 26))}${String(100000000 + Math.floor(rand() * 899999999)).slice(0, 9)}BR` : null,
       deliveryZoneId: zone?.id ?? null,
       deliveryZoneName: zone?.name ?? null,
-      etaMinutesMin: etaMin ?? null,
-      etaMinutesMax: etaMax ?? null,
+      etaMinutesMin: dest ? null : (etaMin ?? null),
+      etaMinutesMax: dest ? null : (etaMax ?? null),
       courierId: courier?.id ?? null,
       courierName: courier?.name ?? null,
       acceptedAt,
-      dispatchedAt,
+      dispatchedAt: shippedAt,
       completedAt,
       canceledAt: d.status === "CANCELED" ? minutes(between(2, 10)) : null,
       notes: pick(demo.notes ?? NOTES),

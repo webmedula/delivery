@@ -37,6 +37,7 @@ enum OrderStatus {
 enum FulfillmentType {
   DELIVERY
   PICKUP
+  SHIPPING // envio pelos Correios ou transportadora, com frete por estado
 }
 
 enum DiscountType {
@@ -107,6 +108,12 @@ model Store {
   pickupMinutesMax   Int?
   deliveryZones      DeliveryZone[]
   couriers           Courier[]
+  // Envio para outras cidades (Correios/transportadora). Frete pela tabela de ShippingMethod.
+  acceptsShipping        Boolean          @default(false)
+  shippingOriginUf       String?          // estado de onde a loja envia, ex.: "SP" (vale o preço "mesmo estado")
+  shippingFreeAboveCents Int?             // frete grátis no envio mais barato a partir deste subtotal
+  shippingMethods        ShippingMethod[]
+  images                 StoredImage[]
 
   planId             String
   plan               Plan               @relation(fields: [planId], references: [id])
@@ -262,6 +269,15 @@ model Order {
   canceledAt       DateTime?
   // O estoque dos itens foi descontado quando o pedido entrou, e devolvido se ele for cancelado.
   stockReserved    Boolean         @default(false)
+  // Envio (fulfillment SHIPPING): forma escolhida, copiada no momento do pedido, e o rastreio.
+  shippingMethodId   String?
+  shippingMethod     ShippingMethod? @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
+  shippingMethodName String?
+  shippingCep        String?         // só dígitos
+  shippingUf         String?
+  shippingDaysMin    Int?
+  shippingDaysMax    Int?
+  trackingCode       String?
   items            OrderItem[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -287,6 +303,45 @@ model DeliveryZone {
   createdAt DateTime @default(now())
 
   @@unique([storeId, name])
+}
+
+// Forma de envio da loja (ex.: PAC, SEDEX, transportadora) com o preço por destino.
+// Preço vazio = não envia para aquela região. "Mesmo estado" vale antes da região.
+model ShippingMethod {
+  id                String   @id @default(cuid())
+  storeId           String
+  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name              String
+  sameStateCents    Int?
+  southeastCents    Int?
+  southCents        Int?
+  midwestCents      Int?
+  northeastCents    Int?
+  northCents        Int?
+  daysMin           Int?     // prazo em dias úteis
+  daysMax           Int?
+  active            Boolean  @default(true)
+  position          Int      @default(0)
+  orders            Order[]
+  createdAt         DateTime @default(now())
+
+  @@index([storeId])
+}
+
+// Foto enviada pelo painel (produto, logo). Fica no próprio Postgres, que já tem backup:
+// a imagem chega já reduzida (WebP, até 1600 px), então ocupa pouco.
+model StoredImage {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  mime      String
+  width     Int
+  height    Int
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@index([storeId])
 }
 
 // Entregador da loja. Acessa os pedidos dele por um link secreto (/entregador/[token]), sem senha.

@@ -30,7 +30,7 @@ export function isBusinessType(v: string): v is BusinessType {
   return NICHES.some((n) => n.value === v);
 }
 
-type StoreForModules = { businessType: BusinessType; acceptsDelivery: boolean };
+type StoreForModules = { businessType: BusinessType; acceptsDelivery: boolean; acceptsShipping?: boolean };
 
 /** Módulos ligados para a loja. O painel e o catálogo perguntam aqui, em vez de testar o tipo. */
 export function modulesFor(store: StoreForModules) {
@@ -47,6 +47,8 @@ export function modulesFor(store: StoreForModules) {
     stock: retail,
     /** Catálogo em grade com fotos grandes (vitrine), em vez da lista do cardápio. */
     gridCatalog: retail,
+    /** Envio pelos Correios/transportadora com tabela de frete. */
+    shipping: retail || !!store.acceptsShipping,
   };
 }
 
@@ -106,6 +108,13 @@ const BASE_STATUS_LABEL: Record<OrderStatus, string> = {
 
 export function orderStatusLabelsFor(type: BusinessType = "FOOD"): Record<OrderStatus, string> {
   return { ...BASE_STATUS_LABEL, PREPARING: termsFor(type).preparing };
+}
+
+/** Nome da etapa considerando como o pedido chega ("Enviado" no lugar de "Saiu para entrega" no envio). */
+export function orderStatusText(status: OrderStatus, fulfillment: string, type: BusinessType = "FOOD") {
+  if (fulfillment === "SHIPPING" && status === "OUT_FOR_DELIVERY") return "Enviado";
+  if (fulfillment === "SHIPPING" && status === "COMPLETED") return "Entregue";
+  return orderStatusLabelsFor(type)[status];
 }
 
 /** Como a loja nasce no cadastro, conforme o tipo. */

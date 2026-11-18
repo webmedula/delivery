@@ -6,7 +6,9 @@ import { formatBRL } from "@/lib/money";
 import { orderStatusLabelsFor, paymentLabel, paymentStatusLabel } from "@/lib/order-status";
 import type { BusinessType } from "@prisma/client";
 import { boardColumns, OPEN_STATUSES, brDayStart, courierMessage, customerMessage, formatEta, minutesSince, nextStep } from "@/lib/delivery";
-import { updateOrderStatus } from "./actions";
+import { setTrackingCode, updateOrderStatus } from "./actions";
+import { orderStatusText } from "@/lib/niche";
+import { formatDays } from "@/lib/shipping";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { NewOrderAlert } from "@/components/NewOrderAlert";
 import { formatPhone, whatsappLink } from "@/lib/phone";
@@ -137,18 +139,20 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
   const step = nextStep(o.status, o.fulfillment, businessType);
   const orderStatusLabel = orderStatusLabelsFor(businessType);
   const age = minutesSince(o.createdAt, now);
-  const late = o.etaMinutesMax ? age > o.etaMinutesMax : age > 60;
+  // Envio tem outro ritmo: separar e postar em até 2 dias.
+  const late = o.fulfillment === "SHIPPING" ? age > 48 * 60 : o.etaMinutesMax ? age > o.etaMinutesMax : age > 60;
+  const ageText = age >= 1440 ? `${Math.floor(age / 1440)} d` : age >= 120 ? `${Math.floor(age / 60)} h` : `${age} min`;
   const message = customerMessage(o, storeName, trackingUrl, storeAddress, businessType);
 
   return (
     <div className={`card space-y-3 ${o.status === "PENDING" ? "border-red-300 ring-2 ring-red-100" : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-lg font-bold">#{o.number}</span>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${o.fulfillment === "DELIVERY" ? "bg-sky-100 text-sky-800" : "bg-violet-100 text-violet-800"}`}>
-          {o.fulfillment === "DELIVERY" ? "Entrega" : "Retirada"}
+        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${o.fulfillment === "DELIVERY" ? "bg-sky-100 text-sky-800" : o.fulfillment === "SHIPPING" ? "bg-amber-100 text-amber-800" : "bg-violet-100 text-violet-800"}`}>
+          {o.fulfillment === "DELIVERY" ? "Entrega" : o.fulfillment === "SHIPPING" ? "Envio" : "Retirada"}
         </span>
         <span className={`ml-auto text-xs font-medium ${late ? "text-red-600" : "text-stone-500"}`} title={o.createdAt.toISOString()}>
-          há {age} min{late ? " · atrasado" : ""}
+          há {ageText}{late ? " · atrasado" : ""}
         </span>
       </div>
       <div className="text-sm">
@@ -164,6 +168,11 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
             {o.deliveryZoneName && <strong>{o.deliveryZoneName}: </strong>}
             {o.address}
           </p>
+        ) : o.fulfillment === "SHIPPING" ? (
+          <div className="text-stone-700">
+            <p><strong>{o.shippingMethodName ?? "Envio"}</strong> · frete {o.deliveryFeeCents ? formatBRL(o.deliveryFeeCents) : "grátis"}{formatDays(o.shippingDaysMin, o.shippingDaysMax) ? ` · ${formatDays(o.shippingDaysMin, o.shippingDaysMax)}` : ""}</p>
+            <p className="select-all">{o.address}</p>
+          </div>
         ) : (
           <p className="text-stone-600">Cliente vai retirar na loja</p>
         )}
@@ -195,10 +204,20 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
         </p>
       )}
 
+      {o.fulfillment === "SHIPPING" && o.status === "OUT_FOR_DELIVERY" && (
+        <form action={setTrackingCode} className="flex gap-2">
+          <input type="hidden" name="orderId" value={o.id} />
+          <input name="trackingCode" defaultValue={o.trackingCode ?? ""} placeholder="Código de rastreio" className="input font-mono uppercase" aria-label="Código de rastreio" />
+          <button className="btn-ghost">Salvar</button>
+        </form>
+      )}
       {step && (
-        <form action={updateOrderStatus}>
+        <form action={updateOrderStatus} className="space-y-2">
           <input type="hidden" name="orderId" value={o.id} />
           <input type="hidden" name="status" value={step.status} />
+          {o.fulfillment === "SHIPPING" && step.status === "OUT_FOR_DELIVERY" && (
+            <input name="trackingCode" placeholder="Código de rastreio (ex.: QB123456789BR)" className="input font-mono uppercase" aria-label="Código de rastreio" />
+          )}
           <button className="btn w-full py-2.5 text-base">{step.label} →</button>
         </form>
       )}
@@ -223,7 +242,7 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
         rel="noopener"
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-600/30 bg-green-50 px-3 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
       >
-        Avisar cliente no WhatsApp: &quot;{orderStatusLabel[o.status]}&quot;
+        Avisar cliente no WhatsApp: &quot;{orderStatusText(o.status, o.fulfillment, businessType)}&quot;
       </a>
       <details className="text-sm">
         <summary className="cursor-pointer text-stone-500">Mais opções</summary>

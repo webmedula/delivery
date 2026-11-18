@@ -14,6 +14,7 @@ export type StoreRules = {
   minOrderCents: number;
   acceptsDelivery: boolean;
   acceptsPickup: boolean;
+  acceptsShipping?: boolean;
 };
 
 export type PricedLine = {
@@ -50,13 +51,15 @@ export function quoteOrder(
   cart: CartLine[],
   catalog: CatalogProduct[],
   rules: StoreRules,
-  fulfillment: "DELIVERY" | "PICKUP",
+  fulfillment: "DELIVERY" | "PICKUP" | "SHIPPING",
 ): OrderQuote {
   if (cart.length === 0) return { ok: false, error: "O carrinho está vazio." };
   if (fulfillment === "DELIVERY" && !rules.acceptsDelivery)
     return { ok: false, error: "Esta loja não faz entregas." };
   if (fulfillment === "PICKUP" && !rules.acceptsPickup)
     return { ok: false, error: "Esta loja não aceita retirada." };
+  if (fulfillment === "SHIPPING" && !rules.acceptsShipping)
+    return { ok: false, error: "Esta loja não faz envios." };
 
   const byId = new Map(catalog.map((p) => [p.id, p]));
   const lines: PricedLine[] = [];
@@ -111,6 +114,7 @@ export function quoteOrder(
   if (subtotalCents < rules.minOrderCents)
     return { ok: false, error: "O pedido não atingiu o valor mínimo da loja." };
 
-  const deliveryFeeCents = fulfillment === "DELIVERY" ? rules.deliveryFeeCents : 0;
+  // Entrega: taxa da loja ou do bairro. Envio: frete da tabela (calculado antes, em lib/shipping).
+  const deliveryFeeCents = fulfillment === "PICKUP" ? 0 : rules.deliveryFeeCents;
   return { ok: true, lines, subtotalCents, deliveryFeeCents, totalCents: subtotalCents + deliveryFeeCents };
 }
