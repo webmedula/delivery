@@ -20,6 +20,9 @@ import { canEnableOnlinePayments } from "@/lib/payment-events";
 import { HEX_COLOR } from "@/lib/theme";
 import { parseMinutesRange, stampsFor } from "@/lib/delivery";
 import { isValidPhone, normalizePhone } from "@/lib/phone";
+import { releaseStock } from "@/lib/stock";
+import { modulesFor, isBusinessType } from "@/lib/niche";
+import { parseVariantRows, splitList } from "@/lib/variants";
 
 const DEMO_BLOCKED = "Esta é uma loja de demonstração: assinatura e pagamento online ficam desligados.";
 
@@ -38,6 +41,8 @@ export async function updateOrderStatus(formData: FormData) {
   });
   if (!order) return;
   await db.order.updateMany({ where: { id, storeId }, data: { status, ...stampsFor(status, order) } });
+  // Pedido cancelado: as peças voltam para o estoque.
+  if (status === "CANCELED") await releaseStock(db, id);
   revalidatePath("/painel");
   revalidatePath("/painel/historico");
 }
@@ -154,46 +159,111 @@ export async function deleteCategory(formData: FormData) {
   revalidatePath("/painel/cardapio");
 }
 
-export type ProductFormState = { error?: string; ok?: boolean } | undefined;
+export type ProductFormState = { error?: string; ok?: boolean; savedAt?: number } | undefined;
 
 const productSchema = z.object({
-  name: z.string().trim().min(1, "Informe o nome do produto."),
-  description: z.string().trim().max(500).optional(),
+  id: z.string().max(40).optional(),
+  name: z.string().trim().min(1, "Informe o nome do produto.").max(120),
+  description: z.string().trim().max(1000).optional(),
   price: z.string(),
+  compareAt: z.string().optional(),
   categoryId: z.string().optional(),
-  imageUrl: z.string().trim().url("URL da imagem inválida.").optional().or(z.literal("")),
+  imageUrl: z.string().trim().url("Link da foto inválido.").optional().or(z.literal("")),
+  images: z.string().max(4000).optional(),
+  stock: z.string().optional(),
+  variants: z.string().max(40000).optional(),
 });
 
-export async function createProduct(_: ProductFormState, formData: FormData): Promise<ProductFormState> {
+/** Cria ou edita um produto (com cor, tamanho e estoque quando a loja usa variações). */
+export async function saveProduct(_: ProductFormState, formData: FormData): Promise<ProductFormState> {
   const { storeId, store } = await requireStoreUser();
+  const modules = modulesFor(store);
   const parsed = productSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const priceCents = parseBRLToCents(parsed.data.price);
+  const data = parsed.data;
+  const priceCents = parseBRLToCents(data.price);
   if (priceCents === null) return { error: "Preço inválido." };
 
-  const total = await db.product.count({ where: { storeId } });
-  if (store.plan.maxProducts > 0 && total >= store.plan.maxProducts)
-    return { error: `Seu plano permite até ${store.plan.maxProducts} produtos. Faça upgrade para cadastrar mais.` };
-
-  let categoryId: string | null = parsed.data.categoryId || null;
-  if (categoryId) {
-    const owns = await db.category.findFirst({ where: { id: categoryId, storeId } });
-    if (!owns) categoryId = null;
+  let compareAtCents: number | null = null;
+  if (data.compareAt?.trim()) {
+    compareAtCents = parseBRLToCents(data.compareAt);
+    if (compareAtCents === null) return { error: "Preço \"de\" inválido." };
+    if (compareAtCents <= priceCents) return { error: "O preço \"de\" (riscado) precisa ser maior que o preço de venda." };
   }
 
-  await db.product.create({
-    data: {
-      storeId,
-      categoryId,
-      name: parsed.data.name,
-      description: parsed.data.description || null,
-      priceCents,
-      imageUrl: parsed.data.imageUrl || null,
-      position: total,
-    },
-  });
+  const images = splitList((data.images ?? "").replace(/\s+/g, "\n"), 8);
+  for (const url of images) if (!/^https?:\/\/\S+$/.test(url)) return { error: `Link de foto inválido: ${url.slice(0, 60)}` };
+
+  let stock: number | null = null;
+  if (data.stock?.trim()) {
+    stock = Number(data.stock);
+    if (!Number.isInteger(stock) || stock < 0 || stock > 99999) return { error: "Estoque inválido. Use um número inteiro (ou deixe vazio para não controlar)." };
+  }
+
+  const variantsResult = modules.variants ? parseVariantRows(data.variants ?? "[]") : { ok: true as const, rows: [] };
+  if (!variantsResult.ok) return { error: variantsResult.error };
+  const rows = variantsResult.rows;
+
+  let categoryId: string | null = data.categoryId || null;
+  if (categoryId && !(await db.category.findFirst({ where: { id: categoryId, storeId } }))) categoryId = null;
+
+  const fields = {
+    categoryId,
+    name: data.name,
+    description: data.description || null,
+    priceCents,
+    compareAtCents,
+    imageUrl: data.imageUrl || null,
+    images,
+    // Com variações, o estoque é o de cada cor/tamanho.
+    stock: rows.length > 0 ? null : stock,
+  };
+
+  if (data.id) {
+    const product = await db.product.findFirst({ where: { id: data.id, storeId }, include: { variants: true } });
+    if (!product) return { error: "Produto não encontrado." };
+    await db.$transaction(async (tx) => {
+      await tx.product.update({ where: { id: product.id }, data: fields });
+      if (!modules.variants) return;
+      const existing = new Set(product.variants.map((v) => v.id));
+      const kept = new Set(rows.filter((r) => r.id && existing.has(r.id)).map((r) => r.id!));
+      await tx.productVariant.deleteMany({ where: { productId: product.id, id: { notIn: [...kept] } } });
+      for (const r of rows) {
+        const values = { color: r.color, size: r.size, stock: r.stock, priceCents: r.priceCents, position: r.position, active: r.active };
+        if (r.id && kept.has(r.id)) await tx.productVariant.update({ where: { id: r.id }, data: values });
+        else await tx.productVariant.create({ data: { ...values, storeId, productId: product.id } });
+      }
+    });
+  } else {
+    const total = await db.product.count({ where: { storeId } });
+    if (store.plan.maxProducts > 0 && total >= store.plan.maxProducts)
+      return { error: `Seu plano permite até ${store.plan.maxProducts} produtos. Faça upgrade para cadastrar mais.` };
+    await db.product.create({
+      data: {
+        storeId,
+        ...fields,
+        position: total,
+        variants: { create: rows.map((r) => ({ storeId, color: r.color, size: r.size, stock: r.stock, priceCents: r.priceCents, position: r.position, active: r.active })) },
+      },
+    });
+  }
   revalidatePath("/painel/cardapio");
-  return { ok: true };
+  revalidatePath("/painel/estoque");
+  revalidatePath(`/loja/${store.slug}`, "layout");
+  return { ok: true, savedAt: Date.now() };
+}
+
+/** Ajuste rápido de estoque na tela de Estoque (uma variação ou um produto sem variações). */
+export async function setStock(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const raw = String(formData.get("stock") ?? "").trim();
+  const stock = raw === "" ? null : Number(raw);
+  if (stock !== null && (!Number.isInteger(stock) || stock < 0 || stock > 99999)) return;
+  const variantId = String(formData.get("variantId") ?? "");
+  const productId = String(formData.get("productId") ?? "");
+  if (variantId) await db.productVariant.updateMany({ where: { id: variantId, storeId }, data: { stock } });
+  else if (productId) await db.product.updateMany({ where: { id: productId, storeId }, data: { stock } });
+  revalidatePath("/painel/estoque");
 }
 
 export async function toggleProduct(formData: FormData) {
@@ -239,6 +309,9 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
   const acceptsDelivery = formData.get("acceptsDelivery") === "on";
   const acceptsPickup = formData.get("acceptsPickup") === "on";
   if (!acceptsDelivery && !acceptsPickup) return { error: "Ative entrega, retirada ou os dois." };
+  const businessType = get("businessType");
+  const whatsappCheckout = formData.get("whatsappCheckout") === "on";
+  if (whatsappCheckout && !whatsapp) return { error: "Para fechar pedidos pelo WhatsApp, informe o WhatsApp da loja." };
 
   await db.store.update({
     where: { id: storeId },
@@ -259,6 +332,8 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
       pickupMinutesMin: pickupTime.min,
       pickupMinutesMax: pickupTime.max,
       isOpen: formData.get("isOpen") === "on",
+      whatsappCheckout,
+      ...(isBusinessType(businessType) ? { businessType } : {}),
     },
   });
   revalidatePath("/painel", "layout");

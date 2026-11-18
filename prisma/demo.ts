@@ -12,13 +12,15 @@
 // Uso: npm run demo        (apaga e recria as lojas demo)
 //      DEMO_STORES=1 no servidor cria as que faltarem a cada subida do app.
 
-import type { DiscountType, FulfillmentType, OrderStatus, PaymentMethod, Prisma, PrismaClient } from "@prisma/client";
+import type { BusinessType, DiscountType, FulfillmentType, OrderStatus, PaymentMethod, Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 export const DEMO_EMAIL_DOMAIN = "demo.webtenda.com.br";
 export const DEFAULT_DEMO_PASSWORD = "demo1234";
 
-type Item = [name: string, description: string, priceCents: number, imageUrl: string];
+/** Cor, tamanho, preço "de" e mais fotos (loja de roupas). */
+type ItemExtra = { colors?: string[]; sizes?: string[]; compareAtCents?: number; images?: string[]; stock?: number };
+type Item = [name: string, description: string, priceCents: number, imageUrl: string, extra?: ItemExtra];
 
 type DemoStore = {
   key: string;
@@ -37,11 +39,21 @@ type DemoStore = {
   itemsPerOrder: [min: number, max: number];
   hours: [from: number, to: number]; // horário de pico dos pedidos (hora de Brasília)
   menu: Record<string, Item[]>;
+  /** Tipo de negócio (padrão: delivery). */
+  businessType?: BusinessType;
+  acceptsDelivery?: boolean;
+  whatsappCheckout?: boolean;
+  payments?: PaymentMethod[];
+  notes?: (string | null)[];
 };
 
 // Fotos gratuitas do Unsplash (licença Unsplash: uso comercial liberado, sem atribuição obrigatória),
 // carregadas direto do CDN deles, como o Unsplash pede.
 const img = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=400&h=400&q=70`;
+
+// Fotos de roupa em pé (3:4), para a vitrine em grade.
+const tall = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=600&h=800&q=70`;
+const LETTERS = ["P", "M", "G", "GG"];
 
 export const DEMO_STORES: DemoStore[] = [
   {
@@ -211,6 +223,56 @@ export const DEMO_STORES: DemoStore[] = [
       Limpeza: [["Detergente 500ml", "Neutro, com bico dosador", 299, img("1590610994353-7b0e7546e681")]],
     },
   },
+  {
+    key: "moda",
+    color: "#9d174d",
+    slug: "flor-de-lis-moda",
+    name: "Flor de Lis Moda",
+    description: "Moda feminina e acessórios com peças novas toda semana. Escolha pelo catálogo e feche o pedido no nosso WhatsApp.",
+    address: "Rua Augusta, 512 - Centro",
+    deliveryFeeCents: 1000,
+    minOrderCents: 0,
+    acceptsPickup: true,
+    acceptsDelivery: true,
+    businessType: "RETAIL",
+    whatsappCheckout: true,
+    payments: ["WHATSAPP", "WHATSAPP", "WHATSAPP", "PIX", "CARD_ON_DELIVERY"],
+    notes: ["Pode separar que passo às 18h", "É para presente, pode embalar?", "Se não servir, posso trocar?", null, null, null, null],
+    loyalty: { ordersRequired: 5, type: "PERCENT", value: 15, minOrderCents: 10000 },
+    coupons: [
+      { code: "BEMVINDA10", type: "PERCENT", value: 10, firstOrderOnly: true },
+      { code: "LIQUIDA20", type: "PERCENT", value: 20, minOrderCents: 25000, expiresInDays: 10 },
+    ],
+    campaign: { name: "Liquida de estação", message: "Oi {nome}! Chegou a liquida da {loja}: 20% off acima de R$ 250 com o cupom {cupom}. Veja as peças: {link}", coupon: "LIQUIDA20" },
+    orders: 38,
+    itemsPerOrder: [1, 3],
+    hours: [10, 20],
+    menu: {
+      Vestidos: [
+        ["Vestido Midi Floral", "Viscose leve com forro, decote V e amarração na cintura. Comprimento midi.", 18990, tall("1762154057377-cc9d3dd6900c"), { colors: ["Azul", "Rosa"], sizes: LETTERS, compareAtCents: 22990, images: [tall("1592924514972-71c5938462d1")] }],
+        ["Vestido Longo Estampado", "Estampa floral em fundo preto, alças finas e fenda lateral.", 16990, tall("1602010069450-0a62034f235c"), { colors: ["Preto"], sizes: ["PP", "P", "M", "G"] }],
+      ],
+      Blusas: [
+        ["Blusa Floral Manga Longa", "Crepe com punho de botão. Veste do 36 ao 46.", 11990, tall("1561052623-76bca41705fe"), { colors: ["Off-white"], sizes: ["P", "M", "G"], images: [tall("1564257631407-4deb1f99d992"), tall("1568732939097-b949d8c03cc1")] }],
+        ["Camiseta Básica de Algodão", "100% algodão penteado, gola careca. A peça coringa do guarda-roupa.", 5990, tall("1581655353564-df123a1eb820"), { colors: ["Branco", "Preto", "Mescla"], sizes: ["PP", ...LETTERS], images: [tall("1521572163474-6864f9cf17ab")] }],
+        ["Camisa de Linho", "Linho com viscose, modelagem solta e bolso frontal.", 14990, tall("1617117475026-2eb3e68b63cf"), { colors: ["Azul claro", "Branco"], sizes: LETTERS, images: [tall("1740711152088-88a009e877bb")] }],
+        ["Cardigan de Tricô", "Tricô macio com botões de madeira. Ótimo para meia-estação.", 17990, tall("1610288311735-39b7facbd095"), { colors: ["Mostarda", "Caramelo"], sizes: ["P", "M", "G"], compareAtCents: 21990, images: [tall("1758981400268-1181291b9503")] }],
+      ],
+      "Calças e saias": [
+        ["Calça Jeans Reta", "Jeans com elastano, cintura alta e barra reta.", 19990, tall("1714143136372-ddaf8b606da7"), { colors: ["Jeans claro", "Jeans escuro"], sizes: ["36", "38", "40", "42", "44"], images: [tall("1602293589930-45aad59ba3ab"), tall("1598554747436-c9293d6a588f")] }],
+        ["Saia Midi Branca", "Linho com cós de elástico e bolsos laterais.", 12990, tall("1577900232427-18219b9166a0"), { colors: ["Branco"], sizes: ["P", "M", "G"], images: [tall("1594633313515-7ad9334a2349")] }],
+        ["Saia Xadrez", "Xadrez vichy amarelo, evasê, com zíper lateral.", 10990, tall("1509182469511-7f0b50bfa63e"), { colors: ["Amarelo"], sizes: ["P", "M", "G"] }],
+      ],
+      Jaquetas: [
+        ["Jaqueta Jeans Clássica", "Jeans 100% algodão com botões de metal. Modelagem levemente oversized.", 24990, tall("1611312449408-fcece27cdbb7"), { colors: ["Jeans"], sizes: LETTERS, images: [tall("1772985451338-6bbc32aeedf1"), tall("1527016021513-b09758b777bd")] }],
+      ],
+      "Calçados e bolsas": [
+        ["Tênis Branco de Couro", "Couro legítimo com palmilha macia.", 27990, tall("1608231387042-66d1773070a5"), { colors: ["Branco"], sizes: ["34", "35", "36", "37", "38", "39"] }],
+        ["Bolsa de Couro Caramelo", "Couro legítimo, alça regulável e bolso interno com zíper.", 22990, tall("1598532163257-ae3c6b2524b6"), { images: [tall("1600857062241-98e5dba7f214")], stock: 4 }],
+        ["Bolsa Vermelha de Mão", "Couro sintético premium com alça curta e alça transversal removível.", 18990, tall("1584917865442-de89df76afd3"), { compareAtCents: 23990, stock: 1 }],
+      ],
+    },
+  },
 ];
 
 // Clientes fictícios. Telefones com DDD 00 (não existe): links de WhatsApp não chegam a ninguém.
@@ -285,7 +347,8 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       name: demo.name,
       description: demo.description,
       address: demo.address,
-      whatsapp: demoWhatsapp(),
+      // Loja que fecha pedidos pelo WhatsApp precisa de um número: sem DEMO_WHATSAPP, um fictício (DDD 00).
+      whatsapp: demoWhatsapp() ?? (demo.whatsappCheckout ? "5500999990000" : null),
       logoUrl: `/demo/logos/${demo.slug}.svg`,
       themeColor: demo.color,
       pixKey: `pix@${demo.slug}.exemplo`,
@@ -297,8 +360,10 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       deliveryMinutesMax: DEMO_ETA[demo.key]?.[1] ?? null,
       pickupMinutesMin: DEMO_ETA[demo.key]?.[2] ?? null,
       pickupMinutesMax: DEMO_ETA[demo.key]?.[3] ?? null,
-      acceptsDelivery: true,
+      acceptsDelivery: demo.acceptsDelivery ?? true,
       acceptsPickup: demo.acceptsPickup,
+      businessType: demo.businessType ?? "FOOD",
+      whatsappCheckout: demo.whatsappCheckout ?? false,
       planId,
       subscriptionStatus: "ACTIVE",
       currentPeriodEnd: FAR_FUTURE,
@@ -324,15 +389,35 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   ];
   await tx.courier.createMany({ data: couriers });
 
-  // Cardápio
-  const products: { id: string; name: string; priceCents: number }[] = [];
+  // Cardápio (na loja de roupas, cada cor/tamanho entra nos pedidos como um item próprio)
+  const products: { id: string; name: string; priceCents: number; variantId?: string; variantLabel?: string }[] = [];
   let position = 0;
   for (const [i, [category, items]] of Object.entries(demo.menu).entries()) {
     const cat = await tx.category.create({ data: { storeId, name: category, position: i } });
-    for (const [name, description, priceCents, image] of items) {
+    for (const [name, description, priceCents, image, extra] of items) {
       const id = `${storeId}-p${position}`;
-      products.push({ id, name, priceCents });
-      await tx.product.create({ data: { id, storeId, categoryId: cat.id, name, description, priceCents, imageUrl: image, position: position++ } });
+      const combos = (extra?.colors ?? [null]).flatMap((color) => (extra?.sizes ?? [null]).map((size) => ({ color, size })));
+      const hasVariants = !!(extra?.colors?.length || extra?.sizes?.length);
+      await tx.product.create({
+        data: {
+          id, storeId, categoryId: cat.id, name, description, priceCents, imageUrl: image, position: position++,
+          images: extra?.images ?? [],
+          compareAtCents: extra?.compareAtCents ?? null,
+          stock: hasVariants ? null : (extra?.stock ?? null),
+        },
+      });
+      if (!hasVariants) {
+        products.push({ id, name, priceCents });
+        continue;
+      }
+      for (const [j, c] of combos.entries()) {
+        const variantId = `${id}-v${j}`;
+        // Estoque variado: alguns tamanhos esgotados, outros com as últimas peças.
+        const stock = [0, 1, 2, 3, 4, 5, 6, 8][Math.floor(rand() * 8)];
+        await tx.productVariant.create({ data: { id: variantId, storeId, productId: id, color: c.color, size: c.size, stock, position: j } });
+        const variantLabel = [c.color, c.size].filter(Boolean).join(" · ");
+        products.push({ id, name: `${name} (${variantLabel})`, priceCents, variantId, variantLabel });
+      }
     }
   }
 
@@ -412,24 +497,23 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   const items: Prisma.OrderItemCreateManyInput[] = [];
   drafts.forEach((d, i) => {
     const id = `${storeId}-o${i + 1}`;
-    const chosen = new Map<string, number>();
+    const chosen = new Map<(typeof products)[number], number>();
     const count = between(...demo.itemsPerOrder);
     while (chosen.size < Math.min(count, products.length)) {
       const p = pick(products);
-      chosen.set(p.id, (chosen.get(p.id) ?? 0) + (rand() < 0.25 ? 2 : 1));
+      chosen.set(p, (chosen.get(p) ?? 0) + (rand() < 0.25 ? 2 : 1));
     }
     // Todo pedido atinge o mínimo da loja; os dos clientes fiéis valem selo de fidelidade.
     const minimum = Math.max(demo.minOrderCents, d.customer === customers[0] || d.customer === customers[1] ? loyalty.minOrderCents : 0);
-    const sum = () => [...chosen].reduce((s, [pid, q]) => s + products.find((x) => x.id === pid)!.priceCents * q, 0);
+    const sum = () => [...chosen].reduce((s, [p, q]) => s + p.priceCents * q, 0);
     while (sum() < minimum) {
       const p = pick(products);
-      chosen.set(p.id, (chosen.get(p.id) ?? 0) + 1);
+      chosen.set(p, (chosen.get(p) ?? 0) + 1);
     }
     let subtotal = 0;
-    for (const [productId, quantity] of chosen) {
-      const p = products.find((x) => x.id === productId)!;
+    for (const [p, quantity] of chosen) {
       subtotal += p.priceCents * quantity;
-      items.push({ orderId: id, productId, name: p.name, unitPriceCents: p.priceCents, quantity });
+      items.push({ orderId: id, productId: p.id, variantId: p.variantId ?? null, variantLabel: p.variantLabel ?? null, name: p.name, unitPriceCents: p.priceCents, quantity });
     }
     const fulfillment: FulfillmentType =
       d.status === "READY_FOR_PICKUP" || (d.status !== "OUT_FOR_DELIVERY" && demo.acceptsPickup && rand() < 0.2) ? "PICKUP" : "DELIVERY";
@@ -462,7 +546,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       const c = demo.coupons.find((x) => x.code === couponCode)!;
       discountCents = discount(c.type, c.value, subtotal);
     }
-    const paymentMethod: PaymentMethod = pick(["PIX", "PIX", "CARD_ON_DELIVERY", "CARD_ON_DELIVERY", "CASH"]);
+    const paymentMethod: PaymentMethod = pick(demo.payments ?? ["PIX", "PIX", "CARD_ON_DELIVERY", "CARD_ON_DELIVERY", "CASH"]);
     const total = subtotal + fee - discountCents;
     orders.push({
       id,
@@ -486,7 +570,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       dispatchedAt,
       completedAt,
       canceledAt: d.status === "CANCELED" ? minutes(between(2, 10)) : null,
-      notes: pick(NOTES),
+      notes: pick(demo.notes ?? NOTES),
       subtotalCents: subtotal,
       deliveryFeeCents: fee,
       discountCents,

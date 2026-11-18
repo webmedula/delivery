@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { formatPhone } from "@/lib/phone";
-import { orderStatusLabel } from "@/lib/order-status";
+import { orderStatusLabelsFor } from "@/lib/order-status";
 import { describeDiscount } from "@/lib/discounts";
 import { getLoyaltyStatus, getSessionCustomer } from "@/lib/customers";
 import { customerLogout, deleteCustomerAddress } from "../actions";
@@ -91,7 +91,7 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
               <Link href={`/loja/${slug}/pedido/${o.id}`} className="min-w-0 flex-1">
                 <p className="text-sm font-medium">#{o.number} · {dateFmt.format(o.createdAt)} · {formatBRL(o.totalCents)}</p>
                 <p className="truncate text-sm text-stone-500">{o.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
-                <p className="text-xs text-stone-500">{orderStatusLabel[o.status]}</p>
+                <p className="text-xs text-stone-500">{orderStatusLabelsFor(store.businessType)[o.status]}</p>
               </Link>
               <ReorderButton
                 slug={slug}

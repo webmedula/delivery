@@ -9,14 +9,18 @@ export function AuthForm({
   action,
   fields,
   submitLabel,
+  children,
 }: {
   action: (state: FormState, formData: FormData) => Promise<FormState>;
   fields: Field[];
   submitLabel: string;
+  /** Campos extras antes dos campos de texto (ex.: tipo de negócio no cadastro). */
+  children?: React.ReactNode;
 }) {
   const [state, formAction, pending] = useActionState(action, undefined);
   return (
     <form action={formAction} className="space-y-4">
+      {children}
       {fields.map((f) => (
         <div key={f.name}>
           <label className="label" htmlFor={f.name}>{f.label}</label>

@@ -2,8 +2,12 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
-import { orderStatusLabel, paymentLabel } from "@/lib/order-status";
+import { orderStatusLabelsFor, paymentLabel } from "@/lib/order-status";
+import { orderSummaryMessage, storeWhatsappLink } from "@/lib/order-message";
+import { termsFor } from "@/lib/niche";
+import { storeUrl } from "@/lib/store-url";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { OpenWhatsapp } from "@/components/OpenWhatsapp";
 import { InstallInvite } from "@/components/InstallApp";
 import { PixPayment } from "@/components/PixPayment";
 import { getPixQrCode, syncOrderPayment } from "@/lib/payments";
@@ -13,8 +17,9 @@ import { currentStepIndex, formatClock, formatEta, trackingSteps } from "@/lib/d
 
 export const dynamic = "force-dynamic";
 
-export default async function OrderPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
+export default async function OrderPage({ params, searchParams }: { params: Promise<{ slug: string; id: string }>; searchParams: Promise<{ enviar?: string }> }) {
   const { slug, id } = await params;
+  const sendNow = (await searchParams).enviar === "1";
   let order = await db.order.findFirst({ where: { id, store: { slug } }, include: { items: true, store: true } });
   if (!order) notFound();
   // Se o webhook ainda não chegou, pergunta ao Asaas se o cliente já pagou.
@@ -26,23 +31,24 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
   const me = await getSessionCustomer(store.id);
   const suggestPin = !!me && me.id === order.customerId && !me.pinHash;
   const awaiting = order.paymentStatus === "AWAITING" && order.status !== "CANCELED";
-  const steps = trackingSteps(order.fulfillment);
+  const orderStatusLabel = orderStatusLabelsFor(store.businessType);
+  const terms = termsFor(store.businessType);
+  const combine = order.paymentMethod === "WHATSAPP";
+  const steps = trackingSteps(order.fulfillment, store.businessType);
   const stepIndex = currentStepIndex(order.status, order.fulfillment);
   const stepTimes = [order.createdAt, order.acceptedAt, order.dispatchedAt, order.completedAt];
   const showEta = !!order.etaMinutesMin && !awaiting && stepIndex >= 0 && stepIndex < 2;
   const pix = awaiting && order.paymentMethod === "ONLINE_PIX" ? await getPixQrCode(order) : null;
 
-  const message = [
-    `Olá! Acabei de fazer o pedido #${order.number} pelo cardápio.`,
-    ...order.items.map((i) => `${i.quantity}x ${i.name}`),
-    ...(order.discountCents > 0 ? [`Desconto: ${formatBRL(order.discountCents)}${order.couponCode ? ` (cupom ${order.couponCode})` : order.loyaltyReward ? " (fidelidade)" : ""}`] : []),
-    `Total: ${formatBRL(order.totalCents)} (${paymentLabel[order.paymentMethod]}${order.paymentStatus === "PAID" ? ", já pago" : ""})`,
-    order.fulfillment === "DELIVERY" ? `Entrega: ${order.address}${order.deliveryZoneName ? ` (${order.deliveryZoneName})` : ""}` : "Vou retirar no local.",
-  ].join("\n");
+  const message = orderSummaryMessage(order, {
+    catalogWord: terms.catalogLower,
+    trackingUrl: combine ? `${await storeUrl(slug)}/pedido/${order.id}` : undefined,
+  });
 
   return (
     <main className="mx-auto max-w-lg space-y-4 px-4 py-8">
       <AutoRefresh seconds={awaiting ? 5 : 20} />
+      {sendNow && combine && store.whatsapp && !store.isDemo && order.status === "PENDING" && <OpenWhatsapp url={storeWhatsappLink(store.whatsapp, message)} />}
       <div className="card text-center">
         <p className="text-sm text-stone-500">{store.name}</p>
         <h1 className="text-2xl font-bold">Pedido #{order.number}</h1>
@@ -126,13 +132,24 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
         <p className="text-stone-600">Pagamento: {paymentLabel[order.paymentMethod]}</p>
         {order.paymentMethod === "PIX" && store.pixKey && <p className="text-stone-600">Chave Pix da loja: <strong>{store.pixKey}</strong></p>}
       </div>
-      {store.whatsapp && !awaiting && order.status !== "CANCELED" && (
-        <a className="btn w-full py-3" target="_blank" href={`https://wa.me/${store.whatsapp}?text=${encodeURIComponent(message)}`}>
-          Avisar a loja no WhatsApp
-        </a>
+      {store.isDemo && combine && (
+        <div className="card space-y-2 border-green-600/20 bg-green-50 text-sm">
+          <p className="font-medium text-green-900">Loja de demonstração: numa loja de verdade, o WhatsApp da loja abriria agora com esta mensagem pronta:</p>
+          <pre className="whitespace-pre-wrap rounded-lg bg-white p-3 font-sans text-[13px] leading-relaxed text-stone-700 ring-1 ring-green-600/10">{message}</pre>
+        </div>
+      )}
+      {store.whatsapp && !(store.isDemo && combine) && !awaiting && order.status !== "CANCELED" && (
+        <div className="space-y-1">
+          <a className="btn w-full py-3" target="_blank" href={storeWhatsappLink(store.whatsapp, message)}>
+            {combine ? "Enviar pedido pelo WhatsApp" : "Avisar a loja no WhatsApp"}
+          </a>
+          {combine && order.status === "PENDING" && (
+            <p className="text-center text-xs text-stone-500">Se a conversa não abriu sozinha, toque no botão. A loja combina o pagamento com você por lá.</p>
+          )}
+        </div>
       )}
       {!awaiting && order.status !== "CANCELED" && <InstallInvite slug={slug} name={store.name} logoUrl={store.logoUrl} compact />}
-      <Link href={`/loja/${slug}`} className="btn-ghost w-full">Voltar ao cardápio</Link>
+      <Link href={`/loja/${slug}`} className="btn-ghost w-full">Voltar ao {terms.catalogLower}</Link>
       {suggestPin ? (
         <Link href={`/loja/${slug}/conta`} className="card block space-y-1 border-brand-100 bg-brand-50 text-sm text-brand-700">
           <strong className="block">Sua conta foi criada neste aparelho ✓</strong>

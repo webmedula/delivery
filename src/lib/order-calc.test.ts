@@ -31,3 +31,33 @@ describe("quoteOrder", () => {
     expect(q.ok).toBe(false);
   });
 });
+
+describe("quoteOrder com cor, tamanho e estoque", () => {
+  const v = (id: string, color: string | null, size: string | null, stock: number | null, priceCents: number | null = null, active = true) =>
+    ({ id, color, size, stock, priceCents, active });
+  const shop = [
+    { id: "vest", name: "Vestido Floral", priceCents: 15990, available: true, variants: [v("az-p", "Azul", "P", 2), v("az-m", "Azul", "M", 0), v("az-gg", "Azul", "GG", null, 16990), v("x", "Rosa", "P", 5, null, false)] },
+    { id: "bolsa", name: "Bolsa", priceCents: 9990, available: true, stock: 1 },
+    { id: "meia", name: "Meia", priceCents: 1500, available: true, stock: null },
+  ];
+  const free = { deliveryFeeCents: 0, minOrderCents: 0, acceptsDelivery: true, acceptsPickup: true };
+
+  it("usa o nome com a variação e o preço da variação quando ela tem um", () => {
+    const q = quoteOrder([{ productId: "vest", variantId: "az-gg", quantity: 1 }], shop, free, "PICKUP");
+    expect(q).toMatchObject({ ok: true, subtotalCents: 16990, lines: [{ name: "Vestido Floral (Azul · GG)", variantId: "az-gg", variantLabel: "Azul · GG" }] });
+    const q2 = quoteOrder([{ productId: "vest", variantId: "az-p", quantity: 2 }], shop, free, "PICKUP");
+    expect(q2).toMatchObject({ ok: true, subtotalCents: 31980 });
+  });
+  it("exige escolher a variação e recusa variação pausada ou de outro produto", () => {
+    expect(quoteOrder([{ productId: "vest", quantity: 1 }], shop, free, "PICKUP")).toMatchObject({ ok: false, error: "Escolha a cor e o tamanho de Vestido Floral." });
+    expect(quoteOrder([{ productId: "vest", variantId: "x", quantity: 1 }], shop, free, "PICKUP").ok).toBe(false);
+    expect(quoteOrder([{ productId: "bolsa", variantId: "az-p", quantity: 1 }], shop, free, "PICKUP").ok).toBe(false);
+  });
+  it("confere o estoque somando linhas repetidas", () => {
+    expect(quoteOrder([{ productId: "vest", variantId: "az-m", quantity: 1 }], shop, free, "PICKUP")).toMatchObject({ ok: false, error: "Vestido Floral (Azul · M) esgotou. Tire da sacola para continuar." });
+    expect(quoteOrder([{ productId: "vest", variantId: "az-p", quantity: 2 }, { productId: "vest", variantId: "az-p", quantity: 1 }], shop, free, "PICKUP"))
+      .toMatchObject({ ok: false, error: "Só restam 2 unidades de Vestido Floral (Azul · P)." });
+    expect(quoteOrder([{ productId: "bolsa", quantity: 2 }], shop, free, "PICKUP")).toMatchObject({ ok: false, error: "Só resta 1 unidade de Bolsa." });
+    expect(quoteOrder([{ productId: "meia", quantity: 50 }], shop, free, "PICKUP").ok).toBe(true);
+  });
+});

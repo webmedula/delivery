@@ -44,7 +44,14 @@ enum DiscountType {
   FIXED   // valor = centavos
 }
 
+// Tipo de negócio da loja: decide quais módulos o painel e o catálogo mostram (src/lib/niche.ts).
+enum BusinessType {
+  FOOD    // restaurante, lanchonete, açaí, pizzaria (delivery)
+  RETAIL  // loja de roupas, calçados e acessórios
+}
+
 enum PaymentMethod {
+  WHATSAPP         // pagamento combinado com a loja na conversa do WhatsApp
   PIX              // Pix pela chave da loja (conferência manual)
   CASH
   CARD_ON_DELIVERY
@@ -84,6 +91,10 @@ model Store {
   logoUrl            String?
   themeColor         String?            // cor do cardápio, ex.: #ea580c (vazio = laranja WebTenda)
   isOpen             Boolean            @default(true)
+  businessType       BusinessType       @default(FOOD)
+  // "Finalizar pelo WhatsApp": o pedido é registrado e o cliente manda a mensagem pronta para a loja,
+  // que combina pagamento e entrega na conversa.
+  whatsappCheckout   Boolean            @default(false)
   deliveryFeeCents   Int                @default(0)
   minOrderCents      Int                @default(0)
   acceptsDelivery    Boolean            @default(true)
@@ -175,11 +186,34 @@ model Product {
   description String?
   priceCents  Int
   imageUrl    String?
+  images      String[]    @default([]) // fotos extras (a primeira é imageUrl)
+  compareAtCents Int?                  // preço "de" (riscado) quando está em promoção
+  // Estoque do produto sem variações (null = não controla). Com variações, vale o de cada variação.
+  stock       Int?
   available   Boolean     @default(true)
   position    Int         @default(0)
+  variants    ProductVariant[]
   orderItems  OrderItem[]
   createdAt   DateTime    @default(now())
 
+  @@index([storeId])
+}
+
+// Variação do produto (cor e/ou tamanho), com estoque próprio. Ex.: Vestido Floral, Azul, M: 3 peças.
+model ProductVariant {
+  id         String      @id @default(cuid())
+  storeId    String
+  productId  String
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  color      String?     // nome da cor, ex.: "Azul"
+  size       String?     // ex.: "M", "38"
+  stock      Int?        // null = não controla estoque
+  priceCents Int?        // null = preço do produto
+  position   Int         @default(0)
+  active     Boolean     @default(true)
+  orderItems OrderItem[]
+
+  @@index([productId])
   @@index([storeId])
 }
 
@@ -226,6 +260,8 @@ model Order {
   dispatchedAt     DateTime?       // saiu para entrega / ficou pronto para retirar
   completedAt      DateTime?
   canceledAt       DateTime?
+  // O estoque dos itens foi descontado quando o pedido entrou, e devolvido se ele for cancelado.
+  stockReserved    Boolean         @default(false)
   items            OrderItem[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -274,7 +310,10 @@ model OrderItem {
   order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId      String?
   product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  name           String  // cópia do nome no momento do pedido
+  variantId      String?
+  variant        ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  variantLabel   String? // cópia da cor/tamanho, ex.: "Azul · M"
+  name           String  // cópia do nome no momento do pedido (com a variação, ex.: "Vestido Floral (Azul · M)")
   unitPriceCents Int     // cópia do preço no momento do pedido
   quantity       Int
   notes          String?

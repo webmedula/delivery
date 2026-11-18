@@ -7,8 +7,17 @@ import { formatBRL } from "@/lib/money";
 import { placeOrder, previewCoupon } from "@/app/loja/[slug]/actions";
 import { guessZone } from "@/lib/delivery";
 import { InstallInvite } from "@/components/InstallApp";
+import { colorSwatch } from "@/lib/variants";
 
-type Product = { id: string; name: string; description: string | null; priceCents: number; imageUrl: string | null };
+type Variant = { id: string; color: string | null; size: string | null; stock: number | null; priceCents: number | null };
+export type Product = {
+  id: string; name: string; description: string | null; priceCents: number; imageUrl: string | null;
+  images?: string[];
+  compareAtCents?: number | null;
+  /** Estoque do produto sem variações (null = não controla). */
+  stock?: number | null;
+  variants?: Variant[];
+};
 type Section = { id: string; name: string; products: Product[] };
 type StoreInfo = {
   slug: string; name: string; description: string | null; address: string | null; logoUrl: string | null;
@@ -25,8 +34,23 @@ type StoreInfo = {
   eta: { delivery: string | null; pickup: string | null };
   /** Loja de demonstração da WebTenda: mostra um aviso no topo. */
   demo?: boolean;
+  /** Vitrine em grade com fotos grandes (loja de roupas) em vez da lista do cardápio. */
+  grid?: boolean;
+  /** A loja fecha pedidos pelo WhatsApp (pagamento combinado na conversa). */
+  whatsappCheckout?: boolean;
+  /** Textos do tipo de loja. */
+  terms?: { catalog: string; catalogLower: string; emptyCatalog: string; poweredBy: string };
 };
-type Payment = "ONLINE_PIX" | "ONLINE_CARD" | "PIX" | "CASH" | "CARD_ON_DELIVERY";
+type Payment = "WHATSAPP" | "ONLINE_PIX" | "ONLINE_CARD" | "PIX" | "CASH" | "CARD_ON_DELIVERY";
+
+/** Item da sacola: "produto" ou "produto:variação". */
+const cartKey = (productId: string, variantId?: string) => (variantId ? `${productId}:${variantId}` : productId);
+const splitKey = (key: string) => {
+  const [productId, variantId] = key.split(":");
+  return { productId, variantId: variantId || undefined };
+};
+const variantName = (v: Pick<Variant, "color" | "size">) => [v.color, v.size].filter(Boolean).join(" · ");
+const isSoldOut = (p: Product) => (p.variants?.length ? p.variants.every((v) => v.stock === 0) : p.stock === 0);
 export type CustomerInfo = {
   name: string;
   phone: string; // formatado
@@ -41,18 +65,23 @@ function rewardCents(subtotal: number, r: StoreInfo["reward"]) {
   return Math.min(subtotal, r.type === "PERCENT" ? Math.round((subtotal * r.value) / 100) : r.value);
 }
 
-export function Storefront({ store, sections, customer }: { store: StoreInfo; sections: Section[]; customer: CustomerInfo | null }) {
+export function Storefront({ store, sections, customer, initialProductId }: { store: StoreInfo; sections: Section[]; customer: CustomerInfo | null; initialProductId?: string }) {
+  const terms = store.terms ?? { catalog: "Cardápio", catalogLower: "cardápio", emptyCatalog: "O cardápio ainda está sendo montado.", poweredBy: "Cardápio digital por" };
   const router = useRouter();
   const storageKey = `cart:${store.slug}`;
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
-  const [fulfillment, setFulfillment] = useState<"DELIVERY" | "PICKUP">(store.acceptsDelivery ? "DELIVERY" : "PICKUP");
+  const [fulfillment, setFulfillment] = useState<"DELIVERY" | "PICKUP">(
+    // Na loja de roupas, retirar na loja é o mais comum; no delivery, a entrega.
+    store.acceptsDelivery && !(store.grid && store.acceptsPickup) ? "DELIVERY" : "PICKUP",
+  );
   // Com Pix online ligado, ele substitui o Pix pela chave (que exige conferência manual).
   const paymentOptions: { value: Payment; label: string }[] = [
+    ...(store.whatsappCheckout ? [{ value: "WHATSAPP" as const, label: "Combinar pelo WhatsApp" }] : []),
     ...(store.online.pix ? [{ value: "ONLINE_PIX" as const, label: "Pix (pague agora)" }] : [{ value: "PIX" as const, label: "Pix" }]),
     ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: "Cartão de crédito (pague agora)" }] : []),
     { value: "CASH", label: "Dinheiro" },
-    { value: "CARD_ON_DELIVERY", label: "Cartão na entrega" },
+    { value: "CARD_ON_DELIVERY", label: store.grid ? "Cartão na entrega ou retirada" : "Cartão na entrega" },
   ];
   const [payment, setPayment] = useState<Payment>(paymentOptions[0].value);
   const payOnline = payment === "ONLINE_PIX" || payment === "ONLINE_CARD";
@@ -69,6 +98,7 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
   const [couponError, setCouponError] = useState<string | null>(null);
   const [phone, setPhone] = useState(customer?.phone ?? "");
   const [checkingCoupon, startCouponCheck] = useTransition();
+  const [openProductId, setOpenProductId] = useState<string | null>(initialProductId ?? null);
 
   useEffect(() => {
     try {
@@ -86,8 +116,23 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
   }, [cart, storageKey]);
 
   const products = useMemo(() => new Map(sections.flatMap((s) => s.products).map((p) => [p.id, p])), [sections]);
-  const lines = Object.entries(cart).filter(([id, q]) => q > 0 && products.has(id)).map(([id, q]) => ({ product: products.get(id)!, quantity: q }));
-  const subtotal = lines.reduce((s, l) => s + l.product.priceCents * l.quantity, 0);
+  const lines = Object.entries(cart)
+    .filter(([, q]) => q > 0)
+    .flatMap(([key, quantity]) => {
+      const { productId, variantId } = splitKey(key);
+      const product = products.get(productId);
+      if (!product) return [];
+      const hasVariants = !!product.variants?.length;
+      const variant = variantId ? product.variants?.find((v) => v.id === variantId) : undefined;
+      // Variação que saiu do catálogo, ou produto que passou a ter variações: some da sacola.
+      if (hasVariants !== !!variant) return [];
+      return [{
+        key, product, variant, quantity,
+        name: variant ? `${product.name} (${variantName(variant)})` : product.name,
+        unitPriceCents: variant?.priceCents ?? product.priceCents,
+      }];
+    });
+  const subtotal = lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0);
   const fee = fulfillment !== "DELIVERY" ? 0 : hasZones ? (zone?.feeCents ?? 0) : store.deliveryFeeCents;
   const count = lines.reduce((s, l) => s + l.quantity, 0);
   const rewardActive = useReward && !!customer?.loyalty?.rewardAvailable;
@@ -109,13 +154,16 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
 
   const add = (id: string, delta: number) =>
     setCart((c) => ({ ...c, [id]: Math.max(0, Math.min(99, (c[id] ?? 0) + delta)) }));
+  /** Quantidade do produto na sacola, somando todas as cores e tamanhos. */
+  const inCart = (productId: string) => Object.entries(cart).reduce((s, [k, q]) => (splitKey(k).productId === productId ? s + q : s), 0);
+  const openProduct = openProductId ? products.get(openProductId) : undefined;
 
   function submit(form: FormData) {
     setError(null);
     startTransition(async () => {
       const result = await placeOrder({
         slug: store.slug,
-        cart: lines.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+        cart: lines.map((l) => ({ productId: l.product.id, variantId: l.variant?.id, quantity: l.quantity })),
         customerName: String(form.get("customerName") ?? ""),
         customerPhone: phone,
         fulfillment,
@@ -133,7 +181,8 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
       });
       if (!result.ok) return setError(result.error);
       setCart({});
-      router.push(`/loja/${store.slug}/pedido/${result.orderId}`);
+      // Pedido para fechar no WhatsApp: a página do pedido abre a conversa com a mensagem pronta.
+      router.push(`/loja/${store.slug}/pedido/${result.orderId}${result.whatsappUrl ? "?enviar=1" : ""}`);
     });
   }
 
@@ -143,7 +192,8 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
       icon: <IconBike />,
       text: `Entrega ${deliveryFeeText(store)}${store.eta.delivery ? ` · ${store.eta.delivery}` : ""}`,
     },
-    store.acceptsPickup && { icon: <IconBag />, text: `Retirada no local${store.eta.pickup ? ` · ${store.eta.pickup}` : ""}` },
+    store.acceptsPickup && { icon: <IconBag />, text: `${store.grid ? "Retirada na loja" : "Retirada no local"}${store.eta.pickup ? ` · ${store.eta.pickup}` : ""}` },
+    store.whatsappCheckout && { icon: <IconChat />, text: "Pedido pelo WhatsApp" },
     store.minOrderCents > 0 && { icon: <IconReceipt />, text: `Mínimo ${formatBRL(store.minOrderCents)}` },
   ].filter(Boolean) as { icon: React.ReactNode; text: string }[];
 
@@ -251,9 +301,23 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
 
         {sections.length > 1 && <CategoryNav sections={sections} />}
 
-        {sections.length === 0 && <p className="p-10 text-center text-stone-500">O cardápio ainda está sendo montado.</p>}
+        {sections.length === 0 && <p className="p-10 text-center text-stone-500">{terms.emptyCatalog}</p>}
 
-        {sections.map((s) => (
+        {store.grid && sections.map((s) => (
+          <section key={s.id} id={`cat-${s.id}`} className="scroll-mt-16 px-3 pt-7 md:px-6">
+            <h2 className="mb-3 flex items-baseline gap-2 px-1 text-xl font-bold tracking-tight text-stone-900">
+              {s.name}
+              <span className="text-sm font-medium text-stone-400">{s.products.length}</span>
+            </h2>
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {s.products.map((p) => (
+                <GridCard key={p.id} product={p} quantity={inCart(p.id)} onOpen={() => setOpenProductId(p.id)} />
+              ))}
+            </ul>
+          </section>
+        ))}
+
+        {!store.grid && sections.map((s) => (
           <section key={s.id} id={`cat-${s.id}`} className="scroll-mt-16 px-3 pt-7 md:px-6">
             <h2 className="mb-3 flex items-baseline gap-2 px-1 text-xl font-bold tracking-tight text-stone-900">
               {s.name}
@@ -261,14 +325,20 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
             </h2>
             <ul className="grid gap-3 md:grid-cols-2">
               {s.products.map((p) => (
-                <ProductCard key={p.id} product={p} quantity={cart[p.id] ?? 0} accepting={store.accepting} onAdd={(d) => add(p.id, d)} />
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  quantity={p.variants?.length ? inCart(p.id) : (cart[p.id] ?? 0)}
+                  accepting={store.accepting}
+                  onAdd={(d) => (p.variants?.length || isSoldOut(p) ? setOpenProductId(p.id) : add(p.id, d))}
+                />
               ))}
             </ul>
           </section>
         ))}
 
         <p className="mt-12 text-center text-xs text-stone-400">
-          Cardápio digital por <a href="https://webtenda.com.br" className="font-medium text-stone-500 hover:text-stone-700">WebTenda</a>
+          {terms.poweredBy} <a href="https://webtenda.com.br" className="font-medium text-stone-500 hover:text-stone-700">WebTenda</a>
         </p>
       </div>
 
@@ -295,13 +365,33 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
               <h2 className="text-lg font-semibold">Sua sacola</h2>
               <button type="button" className="text-sm text-stone-500" onClick={() => setCheckout(false)}>Fechar</button>
             </div>
-            <ul className="space-y-1 text-sm">
+            <ul className="divide-y divide-stone-100 text-sm">
               {lines.map((l) => (
-                <li key={l.product.id} className="flex justify-between">
-                  <span>{l.quantity}× {l.product.name}</span><span>{formatBRL(l.product.priceCents * l.quantity)}</span>
+                <li key={l.key} className="flex items-center gap-3 py-2">
+                  {store.grid && l.product.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={l.product.imageUrl} alt="" ref={hideIfBroken} onError={(e) => { e.currentTarget.style.display = "none"; }} className="h-12 w-10 flex-none rounded-md bg-stone-100 object-cover" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium text-stone-900">{l.product.name}</span>
+                    {l.variant && <span className="block text-xs text-stone-500">{variantName(l.variant)}</span>}
+                  </span>
+                  <span className="flex flex-none items-center rounded-full ring-1 ring-stone-200">
+                    <button type="button" aria-label="Diminuir" className="h-7 w-7 rounded-full font-semibold text-brand-700 hover:bg-stone-100" onClick={() => add(l.key, -1)}>−</button>
+                    <span className="w-5 text-center font-semibold tabular-nums">{l.quantity}</span>
+                    <button
+                      type="button"
+                      aria-label="Aumentar"
+                      className="h-7 w-7 rounded-full font-semibold text-brand-700 hover:bg-stone-100 disabled:opacity-30"
+                      disabled={(l.variant ? l.variant.stock : l.product.stock) != null && l.quantity >= (l.variant ? l.variant.stock! : l.product.stock!)}
+                      onClick={() => add(l.key, 1)}
+                    >+</button>
+                  </span>
+                  <span className="w-20 flex-none text-right tabular-nums">{formatBRL(l.unitPriceCents * l.quantity)}</span>
                 </li>
               ))}
             </ul>
+            {lines.length === 0 && <p className="text-sm text-stone-500">Sua sacola está vazia.</p>}
 
             <div className="flex gap-2">
               {store.acceptsDelivery && (
@@ -312,6 +402,11 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
               )}
             </div>
             {fulfillment === "PICKUP" && store.address && <p className="text-sm text-stone-600">Retirada em: {store.address}</p>}
+            {payment === "WHATSAPP" && (
+              <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
+                Ao enviar, abrimos o WhatsApp da loja com o seu pedido pronto. Vocês combinam o pagamento{store.acceptsDelivery ? " e a entrega" : ""} por lá.
+              </p>
+            )}
 
             <input name="customerName" placeholder="Seu nome" className="input" defaultValue={customer?.name} required />
             {customer ? (
@@ -439,11 +534,28 @@ export function Storefront({ store, sections, customer }: { store: StoreInfo; se
               {subtotal < store.minOrderCents && <p className="text-red-600">Pedido mínimo: {formatBRL(store.minOrderCents)}</p>}
             </div>
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-            <button className="btn w-full py-3 text-base" disabled={pending || subtotal < store.minOrderCents}>
-              {pending ? "Enviando..." : payOnline ? "Fazer pedido e pagar" : "Fazer pedido"}
+            <button
+              className={`btn w-full py-3 text-base ${payment === "WHATSAPP" ? "bg-[#1f9d55]! hover:bg-[#188a49]!" : ""}`}
+              disabled={pending || lines.length === 0 || subtotal < store.minOrderCents}
+            >
+              {pending ? "Enviando..." : payment === "WHATSAPP" ? "Enviar pedido pelo WhatsApp" : payOnline ? "Fazer pedido e pagar" : "Fazer pedido"}
             </button>
           </form>
         </div>
+      )}
+      {openProduct && (
+        <ProductSheet
+          key={openProduct.id}
+          product={openProduct}
+          accepting={store.accepting}
+          cart={cart}
+          shareUrl={`/loja/${store.slug}/produto/${openProduct.id}`}
+          onClose={() => setOpenProductId(null)}
+          onAdd={(variantId, qty) => {
+            add(cartKey(openProduct.id, variantId), qty);
+            setOpenProductId(null);
+          }}
+        />
       )}
     </div>
   );
@@ -599,4 +711,275 @@ function IconUser() {
       <circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" />
     </svg>
   );
+}
+
+function IconChat() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.6-5.2A8.5 8.5 0 1 1 21 12Z" />
+    </svg>
+  );
+}
+
+function discountPercent(p: Product) {
+  return p.compareAtCents && p.compareAtCents > p.priceCents ? Math.round((1 - p.priceCents / p.compareAtCents) * 100) : 0;
+}
+
+/** Cores do produto, sem repetir, na ordem cadastrada. */
+function productColors(p: Product) {
+  const out: string[] = [];
+  for (const v of p.variants ?? []) if (v.color && !out.includes(v.color)) out.push(v.color);
+  return out;
+}
+
+/** "a partir de" quando as variações têm preços diferentes. */
+function priceRange(p: Product) {
+  const prices = (p.variants ?? []).map((v) => v.priceCents ?? p.priceCents);
+  if (prices.length === 0) return { min: p.priceCents, varies: false };
+  const min = Math.min(...prices);
+  return { min, varies: Math.max(...prices) !== min };
+}
+
+/** Card da vitrine em grade (loja de roupas): foto grande, preço e cores. */
+function GridCard({ product: p, quantity, onOpen }: { product: Product; quantity: number; onOpen: () => void }) {
+  const [broken, setBroken] = useState(false);
+  const off = discountPercent(p);
+  const soldOut = isSoldOut(p);
+  const colors = productColors(p);
+  const { min, varies } = priceRange(p);
+  return (
+    <li>
+      <button type="button" onClick={onOpen} className="group block w-full text-left">
+        <div className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-stone-200 ring-1 ring-stone-900/5">
+          {p.imageUrl && !broken ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={p.imageUrl}
+              alt=""
+              loading="lazy"
+              ref={(el) => { if (el?.complete && el.naturalWidth === 0) setBroken(true); }}
+              onError={() => setBroken(true)}
+              className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] ${soldOut ? "opacity-60 grayscale" : ""}`}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center bg-gradient-to-br from-brand-100 to-brand-200 text-4xl font-bold text-brand-700/50">{p.name.charAt(0)}</div>
+          )}
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {off > 0 && !soldOut && <span className="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-bold text-white shadow">-{off}%</span>}
+            {soldOut && <span className="rounded-full bg-stone-900/80 px-2 py-0.5 text-xs font-semibold text-white">Esgotado</span>}
+          </div>
+          {quantity > 0 && (
+            <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-1.5 text-xs font-bold text-brand-700 shadow ring-1 ring-brand-500/40">
+              {quantity} na sacola
+            </span>
+          )}
+        </div>
+        <div className="px-0.5 pt-2">
+          <p className="line-clamp-2 text-[15px] font-medium leading-snug text-stone-900">{p.name}</p>
+          <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
+            {varies && <span className="text-xs text-stone-500">a partir de</span>}
+            <span className="font-bold tabular-nums text-stone-900">{formatBRL(min)}</span>
+            {off > 0 && <span className="text-xs tabular-nums text-stone-400 line-through">{formatBRL(p.compareAtCents!)}</span>}
+          </p>
+          {colors.length > 0 && (
+            <span className="mt-1.5 flex items-center gap-1">
+              {colors.slice(0, 6).map((c) => <ColorDot key={c} color={c} />)}
+              {colors.length > 6 && <span className="text-xs text-stone-500">+{colors.length - 6}</span>}
+            </span>
+          )}
+        </div>
+      </button>
+    </li>
+  );
+}
+
+function ColorDot({ color, size = "sm" }: { color: string; size?: "sm" | "lg" }) {
+  const hex = colorSwatch(color);
+  return (
+    <span
+      title={color}
+      aria-hidden
+      className={`inline-block flex-none rounded-full ring-1 ring-stone-900/15 ${size === "lg" ? "h-7 w-7" : "h-3.5 w-3.5"}`}
+      style={hex ? { background: hex } : { background: "conic-gradient(#f472b6,#facc15,#4ade80,#60a5fa,#f472b6)" }}
+    />
+  );
+}
+
+/** Detalhe do produto: fotos, escolha de cor e tamanho (com o que está esgotado riscado) e quantidade. */
+function ProductSheet({ product: p, accepting, cart, shareUrl, onClose, onAdd }: {
+  product: Product; accepting: boolean; cart: Record<string, number>; shareUrl: string;
+  onClose: () => void; onAdd: (variantId: string | undefined, qty: number) => void;
+}) {
+  const photos = [p.imageUrl, ...(p.images ?? [])].filter((u): u is string => !!u);
+  const [photo, setPhoto] = useState(0);
+  const variants = p.variants ?? [];
+  const colors = productColors(p);
+  const sizes = [...new Set(variants.map((v) => v.size).filter((s): s is string => !!s))];
+  const firstAvailable = variants.find((v) => v.stock !== 0);
+  const [color, setColor] = useState<string | null>(colors.length ? (firstAvailable?.color ?? colors[0]) : null);
+  const [size, setSize] = useState<string | null>(sizes.length === 1 ? sizes[0] : null);
+  const [qty, setQty] = useState(1);
+  const [copied, setCopied] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+
+  const find = (c: string | null, s: string | null) => variants.find((v) => (v.color ?? null) === (colors.length ? c : null) && (v.size ?? null) === (sizes.length ? s : null));
+  const variant = variants.length ? find(color, size) : undefined;
+  const needsChoice = variants.length > 0 && !variant;
+  const stock = variants.length ? (variant ? variant.stock : null) : (p.stock ?? null);
+  const already = cart[cartKey(p.id, variant?.id)] ?? 0;
+  const left = stock === null ? 99 : Math.max(0, stock - already);
+  const soldOut = variants.length ? !!variant && variant.stock === 0 : p.stock === 0;
+  const unit = variant?.priceCents ?? p.priceCents;
+  const off = discountPercent(p);
+  // Cor esgotada em todos os tamanhos / tamanho esgotado na cor escolhida.
+  const colorOut = (c: string) => variants.filter((v) => v.color === c).every((v) => v.stock === 0);
+  const sizeOut = (s: string) => {
+    const v = find(color, s);
+    return !v || v.stock === 0;
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
+  useEffect(() => { setQty(1); setHint(null); }, [variant?.id]);
+
+  function share() {
+    const url = new URL(shareUrl, window.location.href).toString();
+    if (navigator.share) navigator.share({ title: p.name, url }).catch(() => {});
+    else navigator.clipboard?.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
+
+  function submit() {
+    if (needsChoice) return setHint(colors.length && !color ? "Escolha a cor." : sizes.length && !size ? "Escolha o tamanho." : "Essa combinação não existe.");
+    if (soldOut || left < 1) return setHint("Sem estoque dessa opção.");
+    onAdd(variant?.id, Math.min(qty, left));
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={p.name}
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:flex-row sm:rounded-3xl motion-safe:animate-[sacola_.2s_ease-out]"
+      >
+        <div className="relative flex-none bg-stone-100 sm:w-1/2">
+          {photos.length > 0 ? (
+            <>
+              <div
+                className="flex h-[42vh] snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] sm:h-full sm:min-h-[520px] [&::-webkit-scrollbar]:hidden"
+                onScroll={(e) => setPhoto(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
+              >
+                {photos.map((src, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={src + i} src={src} alt={i === 0 ? p.name : ""} className="h-full w-full flex-none snap-center object-cover" />
+                ))}
+              </div>
+              {photos.length > 1 && (
+                <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5">
+                  {photos.map((_, i) => <span key={i} className={`h-1.5 rounded-full transition-all ${i === photo ? "w-5 bg-white" : "w-1.5 bg-white/60"}`} />)}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex h-[30vh] items-center justify-center text-6xl font-bold text-stone-300 sm:h-full">{p.name.charAt(0)}</div>
+          )}
+          <button type="button" onClick={onClose} aria-label="Fechar" className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-xl text-stone-700 shadow-md">×</button>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 space-y-4 overflow-y-auto p-5">
+            <div>
+              <h2 className="text-xl font-bold leading-tight text-stone-900 [text-wrap:balance]">{p.name}</h2>
+              <p className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-bold tabular-nums text-stone-900">{formatBRL(unit)}</span>
+                {off > 0 && <span className="tabular-nums text-stone-400 line-through">{formatBRL(p.compareAtCents!)}</span>}
+                {off > 0 && <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-700">-{off}%</span>}
+              </p>
+            </div>
+
+            {colors.length > 0 && (
+              <div>
+                <p className="mb-2 text-sm text-stone-600">Cor: <strong className="text-stone-900">{color ?? "escolha"}</strong></p>
+                <div className="flex flex-wrap gap-2">
+                  {colors.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => { setColor(c); if (size && sizeOutFor(variants, c, size)) setSize(null); }}
+                      aria-label={c}
+                      aria-pressed={color === c}
+                      className={`relative rounded-full p-0.5 ring-2 transition ${color === c ? "ring-brand-600" : "ring-transparent hover:ring-stone-300"} ${colorOut(c) ? "opacity-40" : ""}`}
+                    >
+                      <ColorDot color={c} size="lg" />
+                      {colorOut(c) && <span className="absolute inset-0 m-auto h-0.5 w-8 rotate-45 rounded bg-stone-500" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {sizes.length > 0 && (
+              <div>
+                <p className="mb-2 text-sm text-stone-600">Tamanho: <strong className="text-stone-900">{size ?? "escolha"}</strong></p>
+                <div className="flex flex-wrap gap-2">
+                  {sizes.map((s) => {
+                    const out = sizeOut(s);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        disabled={out}
+                        onClick={() => setSize(s)}
+                        aria-pressed={size === s}
+                        className={`min-w-12 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                          size === s ? "border-brand-600 bg-brand-600 text-white" : out ? "cursor-not-allowed border-stone-200 text-stone-300 line-through" : "border-stone-300 text-stone-800 hover:border-stone-500"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {!needsChoice && stock !== null && stock > 0 && stock <= 3 && (
+              <p className="text-sm font-medium text-amber-700">{stock === 1 ? "Última peça!" : `Últimas ${stock} peças`}</p>
+            )}
+            {soldOut && <p className="text-sm font-medium text-red-600">Esgotado nesta opção.</p>}
+            {p.description && <p className="whitespace-pre-line text-[15px] leading-relaxed text-stone-600">{p.description}</p>}
+            <button type="button" onClick={share} className="text-sm font-medium text-brand-700 underline underline-offset-2">
+              {copied ? "Link copiado!" : "Compartilhar este produto"}
+            </button>
+          </div>
+
+          {accepting ? (
+            <div className="flex items-center gap-3 border-t border-stone-100 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+              <span className="flex flex-none items-center rounded-full ring-1 ring-stone-200">
+                <button type="button" aria-label="Diminuir" className="h-10 w-10 rounded-full text-lg font-semibold text-brand-700" onClick={() => setQty((q) => Math.max(1, q - 1))}>−</button>
+                <span className="w-6 text-center font-bold tabular-nums">{qty}</span>
+                <button type="button" aria-label="Aumentar" className="h-10 w-10 rounded-full text-lg font-semibold text-brand-700 disabled:opacity-30" disabled={qty >= left} onClick={() => setQty((q) => Math.min(left, q + 1))}>+</button>
+              </span>
+              <button type="button" onClick={submit} disabled={soldOut} className="btn flex-1 py-3 text-base disabled:opacity-50">
+                {soldOut ? "Esgotado" : hint ?? `Adicionar · ${formatBRL(unit * qty)}`}
+              </button>
+            </div>
+          ) : (
+            <p className="border-t border-stone-100 p-4 text-center text-sm text-stone-500">A loja não está recebendo pedidos agora.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function sizeOutFor(variants: Variant[], color: string, size: string) {
+  const v = variants.find((x) => x.color === color && x.size === size);
+  return !v || v.stock === 0;
 }

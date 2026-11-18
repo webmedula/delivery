@@ -2,12 +2,14 @@
 
 import { useActionState } from "react";
 import { updateStoreSettings } from "@/app/painel/actions";
+import { NICHES } from "@/lib/niche";
 
 type Values = {
   name: string; description: string; whatsapp: string; address: string; pixKey: string; logoUrl: string; themeColor: string;
   deliveryFee: string; minOrder: string; acceptsDelivery: boolean; acceptsPickup: boolean; isOpen: boolean;
   deliveryMinutesMin: string; deliveryMinutesMax: string; pickupMinutesMin: string; pickupMinutesMax: string;
   hasZones: boolean;
+  businessType: "FOOD" | "RETAIL"; whatsappCheckout: boolean;
 };
 
 export function StoreSettingsForm({ store }: { store: Values }) {
@@ -17,6 +19,13 @@ export function StoreSettingsForm({ store }: { store: Values }) {
       <label className="flex items-center gap-2 text-sm font-medium">
         <input type="checkbox" name="isOpen" defaultChecked={store.isOpen} /> Loja aberta para pedidos agora
       </label>
+      <div>
+        <label className="label" htmlFor="businessType">Tipo de negócio</label>
+        <select id="businessType" name="businessType" defaultValue={store.businessType} className="input">
+          {NICHES.map((n) => <option key={n.value} value={n.value}>{n.title} ({n.examples.toLowerCase()})</option>)}
+        </select>
+        <p className="mt-1 text-xs text-stone-500">Muda os textos e os recursos do painel e do catálogo (ex.: cor, tamanho e estoque na loja de roupas).</p>
+      </div>
       <div><label className="label">Nome</label><input name="name" defaultValue={store.name} className="input" required /></div>
       <div><label className="label">Descrição</label><textarea name="description" defaultValue={store.description} className="input" rows={2} /></div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -39,7 +48,14 @@ export function StoreSettingsForm({ store }: { store: Values }) {
         </div>
         <div><label className="label">Pedido mínimo (R$)</label><input name="minOrder" defaultValue={store.minOrder} className="input" inputMode="decimal" /></div>
       </div>
-      <fieldset className="space-y-2">
+      <label className="flex items-start gap-2 rounded-xl border border-green-600/20 bg-green-50 p-3 text-sm">
+        <input type="checkbox" name="whatsappCheckout" defaultChecked={store.whatsappCheckout} className="mt-0.5" />
+        <span>
+          <strong className="block text-green-900">Fechar pedidos pelo WhatsApp</strong>
+          <span className="text-green-800">O cliente monta a sacola e envia o pedido pronto para o seu WhatsApp. Vocês combinam pagamento e entrega na conversa. O pedido fica registrado no painel.</span>
+        </span>
+      </label>
+      {store.businessType === "FOOD" && <fieldset className="space-y-2">
         <legend className="label">Tempo estimado mostrado ao cliente (em minutos)</legend>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex items-center gap-2 text-sm">
@@ -56,7 +72,7 @@ export function StoreSettingsForm({ store }: { store: Values }) {
           </div>
         </div>
         <p className="text-xs text-stone-500">Deixe em branco para não mostrar. O cliente vê, por exemplo, &quot;Entrega em 40 a 60 min&quot; no cardápio e a previsão de chegada no pedido.</p>
-      </fieldset>
+      </fieldset>}
       <div className="flex gap-6 text-sm">
         <label className="flex items-center gap-2"><input type="checkbox" name="acceptsDelivery" defaultChecked={store.acceptsDelivery} /> Entrega</label>
         <label className="flex items-center gap-2"><input type="checkbox" name="acceptsPickup" defaultChecked={store.acceptsPickup} /> Retirada</label>

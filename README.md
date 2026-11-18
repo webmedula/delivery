@@ -6,7 +6,9 @@ SaaS de cardápio digital e pedidos para pequenos negócios locais, cobrado por 
 
 ## O que já funciona
 
-- **Cadastro de loja** com 14 dias de teste e slug próprio (`/loja/minha-loja`).
+- **Cadastro de loja** com 14 dias de teste e slug próprio (`/loja/minha-loja`). No cadastro o lojista escolhe o **tipo de negócio** (delivery ou loja de roupas; `?tipo=loja` no link já marca), e o painel e o catálogo mudam textos e recursos conforme o tipo (`src/lib/niche.ts`).
+- **Loja de roupas:** vitrine em grade com fotos grandes, produto com várias fotos, preço "de/por", **cor e tamanho com estoque por combinação** (esgotado aparece riscado), tela de Estoque, link de cada produto para compartilhar (`/loja/x/produto/id`). O estoque baixa quando o pedido entra e volta se ele for cancelado (`src/lib/stock.ts`).
+- **Fechar pedido pelo WhatsApp** (qualquer tipo de loja): o pedido fica registrado e abre o WhatsApp da loja com a mensagem pronta; pagamento combinado na conversa.
 - **Cardápio público** responsivo, com categorias, sacola salva no navegador, entrega ou retirada, taxa de entrega, pedido mínimo, Pix / dinheiro com troco / cartão na entrega.
 - **Página do pedido** para o cliente acompanhar o status, com botão para avisar a loja no WhatsApp.
 - **Painel do lojista:** pedidos em aberto com atualização automática e mudança de status, faturamento do dia, cadastro de categorias e produtos (pausar/excluir), configurações da loja (aberta/fechada, WhatsApp, Pix, taxas).

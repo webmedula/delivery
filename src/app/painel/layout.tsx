@@ -4,12 +4,25 @@ import { isAdminEmail, requireStoreUser } from "@/lib/auth";
 import { leaveSupport } from "@/app/admin/actions";
 import { canTakeOrders, trialDaysLeft } from "@/lib/subscription";
 import { logout } from "@/app/(auth)/actions";
+import { modulesFor, termsFor } from "@/lib/niche";
 
-const nav = [
-  { href: "/painel", label: "Pedidos" },
-  { href: "/painel/historico", label: "Histórico" },
-  { href: "/painel/entregadores", label: "Entregadores" },
-  { href: "/painel/cardapio", label: "Cardápio" },
+type NavItem = { href: string; label: string };
+
+/** Menu do painel conforme os módulos ligados para a loja (src/lib/niche.ts). */
+function navFor(store: Parameters<typeof modulesFor>[0]): NavItem[] {
+  const modules = modulesFor(store);
+  const terms = termsFor(store.businessType);
+  return [
+    { href: "/painel", label: "Pedidos" },
+    { href: "/painel/historico", label: "Histórico" },
+    ...(modules.couriers ? [{ href: "/painel/entregadores", label: "Entregadores" }] : []),
+    { href: "/painel/cardapio", label: terms.catalog },
+    ...(modules.stock ? [{ href: "/painel/estoque", label: "Estoque" }] : []),
+    ...rest,
+  ];
+}
+
+const rest: NavItem[] = [
   { href: "/painel/clientes", label: "Clientes" },
   { href: "/painel/promocoes", label: "Cupons" },
   { href: "/painel/campanhas", label: "Promoções" },
@@ -22,6 +35,8 @@ export default async function PainelLayout({ children }: { children: React.React
   const { store, user, support } = await requireStoreUser();
   const active = canTakeOrders(store);
   const days = trialDaysLeft(store);
+  const nav = navFor(store);
+  const terms = termsFor(store.businessType);
 
   return (
     <div className="min-h-screen">
@@ -49,7 +64,7 @@ export default async function PainelLayout({ children }: { children: React.React
           </nav>
           <div className="ml-auto flex items-center gap-2">
             {!support && isAdminEmail(user.email) && <Link href="/admin" className="btn-ghost">Administração</Link>}
-            <a href={`/loja/${store.slug}`} target="_blank" className="btn-ghost">Ver cardápio</a>
+            <a href={`/loja/${store.slug}`} target="_blank" className="btn-ghost">Ver {terms.catalogLower}</a>
             <form action={logout}><button className="btn-ghost">Sair</button></form>
           </div>
         </div>
@@ -66,6 +81,10 @@ export default async function PainelLayout({ children }: { children: React.React
       ) : !active ? (
         <div className="bg-red-600 px-4 py-2 text-center text-sm text-white">
           Sua loja está bloqueada para novos pedidos. <Link href="/painel/assinatura" className="underline">Regularize a assinatura</Link>.
+        </div>
+      ) : store.whatsappCheckout && !store.whatsapp ? (
+        <div className="bg-amber-100 px-4 py-2 text-center text-sm text-amber-900">
+          Cadastre o WhatsApp da loja em <Link href="/painel/loja" className="font-medium underline">Minha loja</Link> para seus clientes fecharem os pedidos por lá.
         </div>
       ) : days > 0 ? (
         <div className="bg-brand-50 px-4 py-2 text-center text-sm text-brand-700">

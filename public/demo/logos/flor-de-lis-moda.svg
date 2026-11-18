@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"><rect width="240" height="240" rx="56" fill="#9d174d"/>
+<path d="M120 52a14 14 0 1 1 14 14c-8 0-14 4-14 12v8" fill="none" stroke="#fce7f3" stroke-width="8" stroke-linecap="round"/>
+<path d="M120 86 44 136c-8 6-4 16 6 16h140c10 0 14-10 6-16Z" fill="none" stroke="#fce7f3" stroke-width="8" stroke-linejoin="round"/>
+<g fill="#f9a8d4"><circle cx="120" cy="124" r="9"/><circle cx="108" cy="114" r="6"/><circle cx="132" cy="114" r="6"/><circle cx="108" cy="134" r="6"/><circle cx="132" cy="134" r="6"/></g>
+<circle cx="120" cy="124" r="4" fill="#fbcfe8"/>
+<text x="120" y="190" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-style="italic" font-weight="700" font-size="30" fill="#fff">Flor de Lis</text>
+<text x="120" y="214" text-anchor="middle" font-family="Poppins,Montserrat,Helvetica,Arial,sans-serif" font-weight="600" font-size="12" letter-spacing="6" fill="#fbcfe8">MODA</text></svg>
