@@ -2,6 +2,7 @@ import { requireStoreUser } from "@/lib/auth";
 import { StoreSettingsForm } from "@/components/StoreSettingsForm";
 import { DeliveryZones } from "@/components/DeliveryZones";
 import { db } from "@/lib/db";
+import { termsFor } from "@/lib/niche";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export default async function StorePage() {
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-xl font-semibold">Minha loja</h1>
       <div className="card text-sm">
-        Link do seu cardápio: <a className="font-medium text-brand-700" href={`/loja/${store.slug}`} target="_blank">/loja/{store.slug}</a>
+        Link do seu {termsFor(store.businessType).catalogLower}: <a className="font-medium text-brand-700" href={`/loja/${store.slug}`} target="_blank">/loja/{store.slug}</a>
       </div>
       <StoreSettingsForm
         store={{
@@ -35,6 +36,8 @@ export default async function StorePage() {
           pickupMinutesMin: num(store.pickupMinutesMin),
           pickupMinutesMax: num(store.pickupMinutesMax),
           hasZones: zones.some((z) => z.active),
+          businessType: store.businessType,
+          whatsappCheckout: store.whatsappCheckout,
         }}
       />
       {store.acceptsDelivery && (

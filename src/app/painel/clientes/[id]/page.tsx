@@ -4,7 +4,7 @@ import { requireStoreUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { formatPhone, whatsappLink } from "@/lib/phone";
-import { orderStatusLabel } from "@/lib/order-status";
+import { orderStatusLabelsFor } from "@/lib/order-status";
 import { getLoyaltyStatus } from "@/lib/customers";
 import { optOutCustomer } from "../../campanhas/actions";
 import { LoginCodeButton } from "@/components/LoginCodeButton";
@@ -74,7 +74,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
           {customer.orders.map((o) => (
             <li key={o.id} className="flex flex-wrap items-baseline justify-between gap-2 px-5 py-3 text-sm">
               <div>
-                <p className="font-medium">#{o.number} · {dateFmt.format(o.createdAt)} · {orderStatusLabel[o.status]}</p>
+                <p className="font-medium">#{o.number} · {dateFmt.format(o.createdAt)} · {orderStatusLabelsFor(store.businessType)[o.status]}</p>
                 <p className="text-stone-500">{o.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
                 {o.discountCents > 0 && <p className="text-green-700">−{formatBRL(o.discountCents)} {o.loyaltyReward ? "(fidelidade)" : `(cupom ${o.couponCode})`}</p>}
               </div>

@@ -1,16 +1,12 @@
-import type { OrderStatus, PaymentMethod, PaymentStatus } from "@prisma/client";
+import type { PaymentMethod, PaymentStatus } from "@prisma/client";
+import { orderStatusLabelsFor } from "./niche";
 
-export const orderStatusLabel: Record<OrderStatus, string> = {
-  PENDING: "Recebido",
-  CONFIRMED: "Confirmado",
-  PREPARING: "Em preparo",
-  OUT_FOR_DELIVERY: "Saiu para entrega",
-  READY_FOR_PICKUP: "Pronto para retirar",
-  COMPLETED: "Concluído",
-  CANCELED: "Cancelado",
-};
+/** Nomes das etapas do pedido no delivery. Para outro tipo de loja, use orderStatusLabelsFor(tipo). */
+export const orderStatusLabel = orderStatusLabelsFor("FOOD");
+export { orderStatusLabelsFor };
 
 export const paymentLabel: Record<PaymentMethod, string> = {
+  WHATSAPP: "Combinar pelo WhatsApp",
   PIX: "Pix",
   CASH: "Dinheiro",
   CARD_ON_DELIVERY: "Cartão na entrega",

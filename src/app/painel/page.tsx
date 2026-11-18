@@ -3,8 +3,9 @@ import type { Order, OrderItem } from "@prisma/client";
 import { requireStoreUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
-import { orderStatusLabel, paymentLabel, paymentStatusLabel } from "@/lib/order-status";
-import { BOARD_COLUMNS, OPEN_STATUSES, brDayStart, courierMessage, customerMessage, formatEta, minutesSince, nextStep } from "@/lib/delivery";
+import { orderStatusLabelsFor, paymentLabel, paymentStatusLabel } from "@/lib/order-status";
+import type { BusinessType } from "@prisma/client";
+import { boardColumns, OPEN_STATUSES, brDayStart, courierMessage, customerMessage, formatEta, minutesSince, nextStep } from "@/lib/delivery";
 import { updateOrderStatus } from "./actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { NewOrderAlert } from "@/components/NewOrderAlert";
@@ -90,7 +91,7 @@ export default async function OrdersPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        {BOARD_COLUMNS.map((col) => {
+        {boardColumns(store.businessType).map((col) => {
           const orders = open.filter((o) => (col.statuses as readonly string[]).includes(o.status));
           return (
             <section key={col.key} className="rounded-2xl bg-stone-100 p-3">
@@ -114,6 +115,7 @@ export default async function OrdersPage() {
                     now={now}
                     storeName={store.name}
                     storeAddress={store.address}
+                    businessType={store.businessType}
                     trackingUrl={`${menuUrl}/pedido/${o.id}`}
                     couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
                     courier={o.courierId ? courierLinks.get(o.courierId) : undefined}
@@ -128,14 +130,15 @@ export default async function OrdersPage() {
   );
 }
 
-function OrderCard({ order: o, nth, now, storeName, storeAddress, trackingUrl, couriers, courier }: {
-  order: BoardOrder; nth?: number; now: Date; storeName: string; storeAddress: string | null; trackingUrl: string;
+function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, trackingUrl, couriers, courier }: {
+  order: BoardOrder; nth?: number; now: Date; storeName: string; storeAddress: string | null; businessType: BusinessType; trackingUrl: string;
   couriers: { id: string; name: string }[]; courier?: { url: string; phone: string; name: string };
 }) {
-  const step = nextStep(o.status, o.fulfillment);
+  const step = nextStep(o.status, o.fulfillment, businessType);
+  const orderStatusLabel = orderStatusLabelsFor(businessType);
   const age = minutesSince(o.createdAt, now);
   const late = o.etaMinutesMax ? age > o.etaMinutesMax : age > 60;
-  const message = customerMessage(o, storeName, trackingUrl, storeAddress);
+  const message = customerMessage(o, storeName, trackingUrl, storeAddress, businessType);
 
   return (
     <div className={`card space-y-3 ${o.status === "PENDING" ? "border-red-300 ring-2 ring-red-100" : ""}`}>
@@ -162,7 +165,7 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, trackingUrl, c
             {o.address}
           </p>
         ) : (
-          <p className="text-stone-600">Cliente vai retirar no local</p>
+          <p className="text-stone-600">Cliente vai retirar na loja</p>
         )}
         {o.etaMinutesMin && o.status !== "OUT_FOR_DELIVERY" && o.status !== "READY_FOR_PICKUP" && (
           <p className="text-xs text-stone-500">Prometido ao cliente: entre {formatEta(o.createdAt, o.etaMinutesMin, o.etaMinutesMax)}</p>

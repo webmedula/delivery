@@ -1,7 +1,8 @@
 // Regras do acompanhamento de entregas, sem dependência de banco, para poder testar.
 
-import type { FulfillmentType, OrderStatus } from "@prisma/client";
+import type { BusinessType, FulfillmentType, OrderStatus } from "@prisma/client";
 import { formatBRL } from "./money";
+import { termsFor } from "./niche";
 
 /** Colunas do quadro de pedidos do painel. */
 export const BOARD_COLUMNS = [
@@ -12,13 +13,19 @@ export const BOARD_COLUMNS = [
 
 export const OPEN_STATUSES: OrderStatus[] = BOARD_COLUMNS.flatMap((c) => [...c.statuses]);
 
+/** Colunas do quadro com os nomes do tipo de loja ("Em preparo" no delivery, "Separando" na loja). */
+export function boardColumns(type: BusinessType = "FOOD") {
+  return BOARD_COLUMNS.map((c) => (c.key === "preparing" ? { ...c, title: termsFor(type).preparing } : c));
+}
+
 /** O próximo passo do pedido, com o texto do botão grande do cartão. */
-export function nextStep(status: OrderStatus, fulfillment: FulfillmentType): { status: OrderStatus; label: string } | null {
+export function nextStep(status: OrderStatus, fulfillment: FulfillmentType, type: BusinessType = "FOOD"): { status: OrderStatus; label: string } | null {
+  const t = termsFor(type);
   switch (status) {
     case "PENDING":
-      return { status: "PREPARING", label: "Aceitar e preparar" };
+      return { status: "PREPARING", label: t.acceptAction };
     case "CONFIRMED":
-      return { status: "PREPARING", label: "Começar preparo" };
+      return { status: "PREPARING", label: t.startAction };
     case "PREPARING":
       return fulfillment === "DELIVERY"
         ? { status: "OUT_FOR_DELIVERY", label: "Saiu para entrega" }
@@ -52,10 +59,10 @@ export function stampsFor(status: OrderStatus, current: Stamps, now = new Date()
 }
 
 /** Etapas mostradas ao cliente na página do pedido. */
-export function trackingSteps(fulfillment: FulfillmentType) {
+export function trackingSteps(fulfillment: FulfillmentType, type: BusinessType = "FOOD") {
   return [
     { label: "Recebido", statuses: ["PENDING"] },
-    { label: "Em preparo", statuses: ["CONFIRMED", "PREPARING"] },
+    { label: termsFor(type).preparing, statuses: ["CONFIRMED", "PREPARING"] },
     fulfillment === "DELIVERY"
       ? { label: "Saiu para entrega", statuses: ["OUT_FOR_DELIVERY"] }
       : { label: "Pronto para retirar", statuses: ["READY_FOR_PICKUP"] },
@@ -155,7 +162,7 @@ type MessageOrder = {
 };
 
 /** Mensagem pronta de WhatsApp para a loja avisar o cliente sobre a etapa atual do pedido. */
-export function customerMessage(order: MessageOrder, storeName: string, trackingUrl: string, storeAddress?: string | null) {
+export function customerMessage(order: MessageOrder, storeName: string, trackingUrl: string, storeAddress?: string | null, type: BusinessType = "FOOD") {
   const first = order.customerName.trim().split(/\s+/)[0] || "";
   const hi = `Olá${first ? `, ${first}` : ""}!`;
   const ref = `seu pedido #${order.number} da ${storeName}`;
@@ -173,7 +180,7 @@ export function customerMessage(order: MessageOrder, storeName: string, tracking
       break;
     case "CONFIRMED":
     case "PREPARING":
-      body = `${hi} ${cap(ref)} foi aceito e já está em preparo.${eta}`;
+      body = `${hi} ${cap(ref)} ${termsFor(type).preparingMessage}.${eta}`;
       break;
     case "OUT_FOR_DELIVERY":
       body = `${hi} ${cap(ref)} saiu para entrega${order.courierName ? ` com ${order.courierName.trim().split(/\s+/)[0]}` : ""} e logo chega aí.${toPay}`;

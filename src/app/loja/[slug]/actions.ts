@@ -14,17 +14,21 @@ import { cancelAwaitingOrder, createOrderPayment, onlineMethods } from "@/lib/pa
 import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
 import { MIN_ONLINE_PAYMENT_CENTS } from "@/lib/payment-events";
 import { etaFor, resolveDeliveryFee } from "@/lib/delivery";
+import { OutOfStockError, reserveStock } from "@/lib/stock";
+import { orderSummaryMessage, storeWhatsappLink } from "@/lib/order-message";
+import { termsFor } from "@/lib/niche";
+import { storeUrl } from "@/lib/store-url";
 import { clearCustomerSession, getLoyaltyStatus, getSessionCustomer, setCustomerSession } from "@/lib/customers";
 
 const schema = z.object({
   slug: z.string(),
-  cart: z.array(z.object({ productId: z.string(), quantity: z.number().int(), notes: z.string().optional() })).max(50),
+  cart: z.array(z.object({ productId: z.string(), variantId: z.string().max(40).optional(), quantity: z.number().int(), notes: z.string().optional() })).max(50),
   customerName: z.string().trim().min(2, "Informe seu nome.").max(100),
   customerPhone: z.string().trim().min(8, "Informe seu telefone."),
   fulfillment: z.enum(["DELIVERY", "PICKUP"]),
   address: z.string().trim().max(300).optional(),
   deliveryZoneId: z.string().max(40).optional(),
-  paymentMethod: z.enum(["PIX", "CASH", "CARD_ON_DELIVERY", "ONLINE_PIX", "ONLINE_CARD"]),
+  paymentMethod: z.enum(["WHATSAPP", "PIX", "CASH", "CARD_ON_DELIVERY", "ONLINE_PIX", "ONLINE_CARD"]),
   cpfCnpj: z.string().max(20).optional(),
   changeFor: z.string().optional(),
   notes: z.string().trim().max(500).optional(),
@@ -33,7 +37,9 @@ const schema = z.object({
   marketingOptIn: z.boolean().optional(),
 });
 
-export type PlaceOrderResult = { ok: true; orderId: string } | { ok: false; error: string };
+export type PlaceOrderResult =
+  | { ok: true; orderId: string; /** Pedido para fechar no WhatsApp: abrir este link com a mensagem pronta. */ whatsappUrl?: string }
+  | { ok: false; error: string };
 
 /** Valida um cupom para a loja e o cliente (customerId null = cliente novo). */
 async function evaluateCoupon(storeId: string, rawCode: string, customerId: string | null, subtotalCents: number) {
@@ -81,7 +87,10 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
 
   const catalog = await db.product.findMany({
     where: { storeId: store.id, id: { in: data.cart.map((c) => c.productId) } },
-    select: { id: true, name: true, priceCents: true, available: true },
+    select: {
+      id: true, name: true, priceCents: true, available: true, stock: true,
+      variants: { select: { id: true, color: true, size: true, stock: true, priceCents: true, active: true } },
+    },
   });
   // Taxa por bairro (se a loja cadastrou bairros) ou a taxa única da loja.
   const fee = data.fulfillment === "DELIVERY" ? resolveDeliveryFee(store.deliveryZones, data.deliveryZoneId, store.deliveryFeeCents) : null;
@@ -90,6 +99,8 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   const quote = quoteOrder(data.cart, catalog, { ...store, deliveryFeeCents: fee?.ok ? fee.feeCents : store.deliveryFeeCents }, data.fulfillment);
   if (!quote.ok) return quote;
 
+  if (data.paymentMethod === "WHATSAPP" && !(store.whatsappCheckout && store.whatsapp))
+    return { ok: false, error: "Esta forma de pagamento não está disponível. Escolha outra." };
   const online = data.paymentMethod === "ONLINE_PIX" || data.paymentMethod === "ONLINE_CARD";
   if (online) {
     const methods = onlineMethods(store);
@@ -153,6 +164,8 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
             create: { customerId, address },
           });
         }
+        // Desconta as peças do estoque aqui, para duas pessoas não levarem a última ao mesmo tempo.
+        const stockReserved = await reserveStock(tx, store.id, quote.lines);
         const last = await tx.order.findFirst({ where: { storeId: store.id }, orderBy: { number: "desc" }, select: { number: true } });
         return tx.order.create({
           data: {
@@ -179,8 +192,15 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
             couponCode,
             loyaltyReward,
             totalCents: quote.totalCents - discount,
-            items: { create: quote.lines.map((l) => ({ productId: l.productId, name: l.name, unitPriceCents: l.unitPriceCents, quantity: l.quantity, notes: l.notes })) },
+            stockReserved,
+            items: {
+              create: quote.lines.map((l) => ({
+                productId: l.productId, variantId: l.variantId ?? null, variantLabel: l.variantLabel ?? null,
+                name: l.name, unitPriceCents: l.unitPriceCents, quantity: l.quantity, notes: l.notes,
+              })),
+            },
           },
+          include: { items: true },
         });
       });
       // Primeiro pedido com este telefone: o aparelho fica logado como esse cliente.
@@ -189,8 +209,14 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
         const payment = await createOrderPayment(order.id, data.cpfCnpj ?? "");
         if (!payment.ok) return payment;
       }
+      if (data.paymentMethod === "WHATSAPP" && store.whatsapp) {
+        const trackingUrl = `${await storeUrl(store.slug)}/pedido/${order.id}`;
+        const text = orderSummaryMessage(order, { trackingUrl, catalogWord: termsFor(store.businessType).catalogLower });
+        return { ok: true, orderId: order.id, whatsappUrl: storeWhatsappLink(store.whatsapp, text) };
+      }
       return { ok: true, orderId: order.id };
     } catch (e) {
+      if (e instanceof OutOfStockError) return { ok: false, error: e.message };
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue;
       throw e;
     }

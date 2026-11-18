@@ -4,6 +4,7 @@ import { db } from "./db";
 import * as asaas from "./asaas";
 import { open, seal } from "./secret-box";
 import { normalizeCpfCnpj } from "./cpf-cnpj";
+import { releaseStock } from "./stock";
 import { MIN_ONLINE_PAYMENT_CENTS, SUBACCOUNT_WEBHOOK_EVENTS, eventForPaymentStatus, paymentUpdateFor } from "./payment-events";
 
 // Pagamento online dos pedidos. Cada loja tem uma subconta no Asaas criada
@@ -136,6 +137,7 @@ export async function createOrderPayment(orderId: string, cpfCnpjInput: string):
   if (!order || (order.paymentMethod !== "ONLINE_PIX" && order.paymentMethod !== "ONLINE_CARD")) return { ok: false, error: "Pedido inválido." };
   const fail = async (error: string) => {
     await db.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED", status: "CANCELED" } });
+    await releaseStock(db, order.id);
     return { ok: false as const, error };
   };
   const key = storeKey(order.store);
@@ -200,6 +202,7 @@ export async function applyPaymentEvent(paymentId: string, event: string, eventI
       if (!update) return false;
       // Só atualiza se a situação não mudou no meio do caminho.
       const res = await tx.order.updateMany({ where: { id: order.id, paymentStatus: order.paymentStatus }, data: update });
+      if (res.count > 0 && update.status === "CANCELED") await releaseStock(tx, order.id);
       return res.count > 0;
     });
   } catch (e) {
@@ -246,6 +249,7 @@ export async function cancelAwaitingOrder(order: Order & { store: Store }): Prom
       if (!(e instanceof asaas.AsaasError) || e.status !== 404) return { ok: false, error: errorText(e) };
     }
   }
-  await db.order.updateMany({ where: { id: order.id, paymentStatus: "AWAITING" }, data: { paymentStatus: "EXPIRED", status: "CANCELED" } });
+  const res = await db.order.updateMany({ where: { id: order.id, paymentStatus: "AWAITING" }, data: { paymentStatus: "EXPIRED", status: "CANCELED" } });
+  if (res.count > 0) await releaseStock(db, order.id);
   return { ok: true };
 }

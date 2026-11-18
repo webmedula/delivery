@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { createSession, destroySession, endSupportSession, hashPassword, verifyPassword } from "@/lib/auth";
 import { RESERVED_SLUGS, slugify } from "@/lib/slug";
 import { TRIAL_DAYS } from "@/lib/subscription";
+import { signupDefaultsFor } from "@/lib/niche";
 
 export type FormState = { error?: string } | undefined;
 
@@ -14,6 +15,7 @@ const signupSchema = z.object({
   name: z.string().trim().min(2, "Informe seu nome."),
   email: z.string().trim().toLowerCase().email("E-mail inválido."),
   password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres."),
+  businessType: z.enum(["FOOD", "RETAIL"]).default("FOOD"),
 });
 
 async function uniqueSlug(base: string) {
@@ -26,7 +28,8 @@ async function uniqueSlug(base: string) {
 export async function signup(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = signupSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const { storeName, name, email, password } = parsed.data;
+  const { storeName, name, email, password, businessType } = parsed.data;
+  const defaults = signupDefaultsFor(businessType);
 
   if (await db.user.findUnique({ where: { email } })) return { error: "Já existe uma conta com este e-mail." };
 
@@ -46,6 +49,9 @@ export async function signup(_: FormState, formData: FormData): Promise<FormStat
           planId: plan.id,
           subscriptionStatus: "TRIALING",
           trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+          // Cada tipo de negócio já nasce configurado (ex.: loja de roupa com retirada e WhatsApp).
+          ...defaults.store,
+          categories: { create: defaults.categories.map((c, i) => ({ name: c, position: i })) },
         },
       },
     },
