@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { absoluteImageUrl } from "@/lib/image-url";
+import { siteUrl } from "@/lib/store-url";
 import { formatBRL } from "@/lib/money";
 import { getStore, renderStore } from "@/lib/storefront-page";
 
@@ -14,7 +16,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!store || !product) return { title: "Produto não encontrado" };
   const title = `${product.name} · ${formatBRL(product.priceCents)} · ${store.name}`;
   const description = product.description ?? store.description ?? undefined;
-  return { title, description, openGraph: { title, description, images: product.imageUrl ? [product.imageUrl] : undefined } };
+  const image = absoluteImageUrl(product.imageUrl, await siteUrl());
+  return { title, description, openGraph: { title, description, images: image ? [image] : undefined } };
 }
 
 export default async function ProductPage({ params }: Props) {

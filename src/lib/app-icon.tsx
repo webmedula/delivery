@@ -1,4 +1,7 @@
 import "server-only";
+import sharp from "sharp";
+import { imageIdFromUrl } from "./image-url";
+import { readStoredImage } from "./images";
 import { readFile } from "node:fs/promises";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
@@ -45,6 +48,13 @@ function toDataUrl(type: string, data: Buffer) {
 export async function loadLogo(logoUrl: string | null | undefined): Promise<string | null> {
   if (!logoUrl) return null;
   try {
+    // Logo enviado pelo painel (/img/...): vem do banco. O gerador de imagem não lê WebP, então vira PNG.
+    if (imageIdFromUrl(logoUrl)) {
+      const img = await readStoredImage(logoUrl);
+      if (!img) return null;
+      const png = await sharp(Buffer.from(img.data)).png().toBuffer();
+      return toDataUrl("image/png", png);
+    }
     // Logo dentro do próprio sistema (ex.: /demo/logos/x.svg): lê direto da pasta public.
     if (logoUrl.startsWith("/") && !logoUrl.startsWith("//")) {
       const pub = path.join(process.cwd(), "public");

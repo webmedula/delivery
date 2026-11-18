@@ -15,6 +15,7 @@ import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
 import { MIN_ONLINE_PAYMENT_CENTS } from "@/lib/payment-events";
 import { etaFor, resolveDeliveryFee } from "@/lib/delivery";
 import { OutOfStockError, reserveStock } from "@/lib/stock";
+import { formatShippingAddress, normalizeCep, resolveShipping } from "@/lib/shipping";
 import { orderSummaryMessage, storeWhatsappLink } from "@/lib/order-message";
 import { termsFor } from "@/lib/niche";
 import { storeUrl } from "@/lib/store-url";
@@ -25,8 +26,19 @@ const schema = z.object({
   cart: z.array(z.object({ productId: z.string(), variantId: z.string().max(40).optional(), quantity: z.number().int(), notes: z.string().optional() })).max(50),
   customerName: z.string().trim().min(2, "Informe seu nome.").max(100),
   customerPhone: z.string().trim().min(8, "Informe seu telefone."),
-  fulfillment: z.enum(["DELIVERY", "PICKUP"]),
+  fulfillment: z.enum(["DELIVERY", "PICKUP", "SHIPPING"]),
   address: z.string().trim().max(300).optional(),
+  shipping: z
+    .object({
+      cep: z.string().max(12),
+      street: z.string().trim().max(120),
+      number: z.string().trim().max(20),
+      complement: z.string().trim().max(80).optional(),
+      district: z.string().trim().max(80),
+      city: z.string().trim().max(80),
+      methodId: z.string().max(40),
+    })
+    .optional(),
   deliveryZoneId: z.string().max(40).optional(),
   paymentMethod: z.enum(["WHATSAPP", "PIX", "CASH", "CARD_ON_DELIVERY", "ONLINE_PIX", "ONLINE_CARD"]),
   cpfCnpj: z.string().max(20).optional(),
@@ -72,10 +84,16 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   const phone = normalizePhone(data.customerPhone);
   if (!isValidPhone(phone)) return { ok: false, error: "Telefone inválido. Use DDD + número, ex.: (11) 98888-7777." };
 
-  const store = await db.store.findUnique({ where: { slug: data.slug }, include: { plan: true, deliveryZones: true } });
+  const store = await db.store.findUnique({ where: { slug: data.slug }, include: { plan: true, deliveryZones: true, shippingMethods: true } });
   if (!store) return { ok: false, error: "Loja não encontrada." };
   if (!store.isOpen || !canTakeOrders(store)) return { ok: false, error: "A loja não está recebendo pedidos agora." };
   if (data.fulfillment === "DELIVERY" && !data.address) return { ok: false, error: "Informe o endereço de entrega." };
+  const ship = data.fulfillment === "SHIPPING" ? data.shipping : undefined;
+  if (data.fulfillment === "SHIPPING") {
+    if (!ship) return { ok: false, error: "Informe o endereço de envio." };
+    if (!normalizeCep(ship.cep)) return { ok: false, error: "CEP inválido. Confira os 8 números." };
+    if (!ship.street || !ship.number || !ship.district || !ship.city) return { ok: false, error: "Preencha rua, número, bairro e cidade." };
+  }
 
   if (store.plan.maxOrdersMonth > 0) {
     const monthStart = new Date();
@@ -96,9 +114,20 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   const fee = data.fulfillment === "DELIVERY" ? resolveDeliveryFee(store.deliveryZones, data.deliveryZoneId, store.deliveryFeeCents) : null;
   if (fee && !fee.ok) return fee;
   const zone = fee?.ok ? fee.zone : null;
-  const quote = quoteOrder(data.cart, catalog, { ...store, deliveryFeeCents: fee?.ok ? fee.feeCents : store.deliveryFeeCents }, data.fulfillment);
+  // Envio: o frete depende do CEP e do subtotal (frete grátis acima de um valor).
+  let shipping: ReturnType<typeof resolveShipping> | null = null;
+  if (ship) {
+    const base = quoteOrder(data.cart, catalog, { ...store, deliveryFeeCents: 0 }, "SHIPPING");
+    if (!base.ok) return base;
+    shipping = resolveShipping(store.shippingMethods, { originUf: store.shippingOriginUf, freeAboveCents: store.shippingFreeAboveCents }, ship.cep, ship.methodId, base.subtotalCents);
+    if (!shipping.ok) return shipping;
+  }
+  const feeCents = shipping?.ok ? shipping.option.feeCents : fee?.ok ? fee.feeCents : store.deliveryFeeCents;
+  const quote = quoteOrder(data.cart, catalog, { ...store, deliveryFeeCents: feeCents }, data.fulfillment);
   if (!quote.ok) return quote;
 
+  if (data.fulfillment === "SHIPPING" && (data.paymentMethod === "CASH" || data.paymentMethod === "CARD_ON_DELIVERY"))
+    return { ok: false, error: "Para envio, escolha Pix, cartão online ou combinar pelo WhatsApp." };
   if (data.paymentMethod === "WHATSAPP" && !(store.whatsappCheckout && store.whatsapp))
     return { ok: false, error: "Esta forma de pagamento não está disponível. Escolha outra." };
   const online = data.paymentMethod === "ONLINE_PIX" || data.paymentMethod === "ONLINE_CARD";
@@ -134,7 +163,13 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
 
   const changeForCents =
     data.paymentMethod === "CASH" && data.changeFor ? parseBRLToCents(data.changeFor) : null;
-  const address = data.fulfillment === "DELIVERY" ? data.address!.replace(/\s+/g, " ").trim() : null;
+  const address =
+    data.fulfillment === "DELIVERY"
+      ? data.address!.replace(/\s+/g, " ").trim()
+      : ship && shipping?.ok
+        ? formatShippingAddress({ ...ship, cep: normalizeCep(ship.cep)!, uf: shipping.uf })
+        : null;
+  const shipped = shipping?.ok ? shipping : null;
   const eta = etaFor(store, data.fulfillment);
 
   // Número sequencial por loja. Em caso de corrida, a constraint única
@@ -157,7 +192,7 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
           });
         }
         // Endereço só é salvo na conta quando o aparelho é do próprio cliente.
-        if (trusted && customerId && address) {
+        if (trusted && customerId && address && data.fulfillment === "DELIVERY") {
           await tx.customerAddress.upsert({
             where: { customerId_address: { customerId, address } },
             update: { lastUsedAt: new Date() },
@@ -182,6 +217,12 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
             address,
             deliveryZoneId: zone?.id ?? null,
             deliveryZoneName: zone?.name ?? null,
+            shippingMethodId: shipped?.option.id ?? null,
+            shippingMethodName: shipped?.option.name ?? null,
+            shippingCep: ship ? normalizeCep(ship.cep) : null,
+            shippingUf: shipped?.uf ?? null,
+            shippingDaysMin: shipped?.option.daysMin ?? null,
+            shippingDaysMax: shipped?.option.daysMax ?? null,
             etaMinutesMin: eta?.min ?? null,
             etaMinutesMax: eta?.max ?? null,
             notes: data.notes || null,

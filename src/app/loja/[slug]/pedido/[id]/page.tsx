@@ -2,9 +2,10 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
-import { orderStatusLabelsFor, paymentLabel } from "@/lib/order-status";
+import { paymentLabel } from "@/lib/order-status";
 import { orderSummaryMessage, storeWhatsappLink } from "@/lib/order-message";
-import { termsFor } from "@/lib/niche";
+import { orderStatusText, termsFor } from "@/lib/niche";
+import { CORREIOS_TRACKING_URL, formatDays, isCorreiosCode } from "@/lib/shipping";
 import { storeUrl } from "@/lib/store-url";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { OpenWhatsapp } from "@/components/OpenWhatsapp";
@@ -31,7 +32,6 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   const me = await getSessionCustomer(store.id);
   const suggestPin = !!me && me.id === order.customerId && !me.pinHash;
   const awaiting = order.paymentStatus === "AWAITING" && order.status !== "CANCELED";
-  const orderStatusLabel = orderStatusLabelsFor(store.businessType);
   const terms = termsFor(store.businessType);
   const combine = order.paymentMethod === "WHATSAPP";
   const steps = trackingSteps(order.fulfillment, store.businessType);
@@ -53,7 +53,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         <p className="text-sm text-stone-500">{store.name}</p>
         <h1 className="text-2xl font-bold">Pedido #{order.number}</h1>
         <p className="mt-2 inline-block rounded-full bg-brand-100 px-3 py-1 text-sm font-medium text-brand-700">
-          {awaiting ? "Aguardando pagamento" : orderStatusLabel[order.status]}
+          {awaiting ? "Aguardando pagamento" : orderStatusText(order.status, order.fulfillment, store.businessType)}
         </p>
         {showEta && (
           <p className="mt-3 text-sm text-stone-700">
@@ -61,7 +61,29 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
             <strong className="text-base text-stone-900">{formatEta(order.createdAt, order.etaMinutesMin!, order.etaMinutesMax)}</strong>
           </p>
         )}
-        {order.status === "OUT_FOR_DELIVERY" && <p className="mt-3 text-sm text-stone-700">Seu pedido está a caminho{order.courierName ? <> com <strong>{order.courierName.trim().split(/\s+/)[0]}</strong></> : ""}. Fique de olho no telefone!</p>}
+        {order.fulfillment === "SHIPPING" && order.status === "OUT_FOR_DELIVERY" && (
+          <div className="mt-3 space-y-2 text-sm text-stone-700">
+            <p>
+              Seu pedido foi enviado{order.shippingMethodName ? <> por <strong>{order.shippingMethodName}</strong></> : ""}.
+              {formatDays(order.shippingDaysMin, order.shippingDaysMax) && <> Prazo: {formatDays(order.shippingDaysMin, order.shippingDaysMax)}.</>}
+            </p>
+            {order.trackingCode && (
+              <div className="rounded-xl bg-stone-50 p-3">
+                <p className="text-xs text-stone-500">Código de rastreio</p>
+                <p className="select-all font-mono text-lg font-semibold tracking-wider">{order.trackingCode}</p>
+                {isCorreiosCode(order.trackingCode) && (
+                  <a href={CORREIOS_TRACKING_URL} target="_blank" rel="noopener" className="mt-1 inline-block text-brand-700 underline">Rastrear no site dos Correios</a>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {order.fulfillment === "SHIPPING" && (order.status === "PENDING" || order.status === "CONFIRMED" || order.status === "PREPARING") && !awaiting && (
+          <p className="mt-3 text-sm text-stone-700">
+            A loja vai separar e postar seu pedido{order.shippingMethodName ? <> por <strong>{order.shippingMethodName}</strong></> : ""}. Você recebe o código de rastreio quando ele for enviado.
+          </p>
+        )}
+        {order.fulfillment !== "SHIPPING" && order.status === "OUT_FOR_DELIVERY" && <p className="mt-3 text-sm text-stone-700">Seu pedido está a caminho{order.courierName ? <> com <strong>{order.courierName.trim().split(/\s+/)[0]}</strong></> : ""}. Fique de olho no telefone!</p>}
         {order.status === "READY_FOR_PICKUP" && (
           <p className="mt-3 text-sm text-stone-700">Pode vir buscar{store.address ? <> em <strong>{store.address}</strong></> : ""}.</p>
         )}
@@ -118,6 +140,10 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         {order.fulfillment === "DELIVERY" ? (
           <div className="flex justify-between border-t border-stone-100 pt-2">
             <span>Entrega{order.deliveryZoneName ? ` (${order.deliveryZoneName})` : ""}</span><span>{formatBRL(order.deliveryFeeCents)}</span>
+          </div>
+        ) : order.fulfillment === "SHIPPING" ? (
+          <div className="flex justify-between border-t border-stone-100 pt-2">
+            <span>Frete{order.shippingMethodName ? ` (${order.shippingMethodName})` : ""}</span><span>{order.deliveryFeeCents ? formatBRL(order.deliveryFeeCents) : "grátis"}</span>
           </div>
         ) : (
           <div className="flex justify-between border-t border-stone-100 pt-2"><span>Retirada no local</span><span>grátis</span></div>

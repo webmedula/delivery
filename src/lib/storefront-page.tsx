@@ -22,6 +22,7 @@ export async function getStore(slug: string) {
         include: { variants: { where: { active: true }, orderBy: { position: "asc" } } },
       },
       deliveryZones: { where: { active: true }, orderBy: { name: "asc" } },
+      shippingMethods: { where: { active: true }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
     },
   });
 }
@@ -72,6 +73,18 @@ export async function renderStore(slug: string, productId?: string) {
         demo: store.isDemo,
         grid: modules.gridCatalog,
         whatsappCheckout: store.whatsappCheckout && !!store.whatsapp,
+        shipping:
+          store.acceptsShipping && store.shippingMethods.length > 0
+            ? {
+                originUf: store.shippingOriginUf,
+                freeAboveCents: store.shippingFreeAboveCents,
+                methods: store.shippingMethods.map((m) => ({
+                  id: m.id, name: m.name, sameStateCents: m.sameStateCents, southeastCents: m.southeastCents, southCents: m.southCents,
+                  midwestCents: m.midwestCents, northeastCents: m.northeastCents, northCents: m.northCents,
+                  daysMin: m.daysMin, daysMax: m.daysMax, active: m.active,
+                })),
+              }
+            : null,
         terms: { catalog: terms.catalog, catalogLower: terms.catalogLower, emptyCatalog: terms.emptyCatalog, poweredBy: terms.poweredBy },
       }}
       initialProductId={productId}

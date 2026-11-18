@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { updateStoreSettings } from "@/app/painel/actions";
 import { NICHES } from "@/lib/niche";
+import { PhotoPicker } from "./PhotoPicker";
 
 type Values = {
   name: string; description: string; whatsapp: string; address: string; pixKey: string; logoUrl: string; themeColor: string;
@@ -14,6 +15,7 @@ type Values = {
 
 export function StoreSettingsForm({ store }: { store: Values }) {
   const [state, action, pending] = useActionState(updateStoreSettings, undefined);
+  const [logo, setLogo] = useState<string[]>(store.logoUrl ? [store.logoUrl] : []);
   return (
     <form action={action} className="card space-y-4">
       <label className="flex items-center gap-2 text-sm font-medium">
@@ -33,7 +35,11 @@ export function StoreSettingsForm({ store }: { store: Values }) {
         <div><label className="label">Chave Pix</label><input name="pixKey" defaultValue={store.pixKey} className="input" /></div>
       </div>
       <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-        <div><label className="label">Logo (URL da imagem, opcional)</label><input name="logoUrl" defaultValue={store.logoUrl} placeholder="https://..." className="input" /></div>
+        <div>
+          <p className="label">Logo (opcional)</p>
+          <div className="max-w-[260px]"><PhotoPicker value={logo} onChange={setLogo} kind="logo" shape="square" /></div>
+          <input type="hidden" name="logoUrl" value={logo[0] ?? ""} />
+        </div>
         <div>
           <label className="label">Cor do cardápio</label>
           <input type="color" name="themeColor" defaultValue={store.themeColor || "#ea580c"} className="h-10 w-20 cursor-pointer rounded-lg border border-stone-300 bg-white p-1" />

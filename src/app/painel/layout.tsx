@@ -18,6 +18,7 @@ function navFor(store: Parameters<typeof modulesFor>[0]): NavItem[] {
     ...(modules.couriers ? [{ href: "/painel/entregadores", label: "Entregadores" }] : []),
     { href: "/painel/cardapio", label: terms.catalog },
     ...(modules.stock ? [{ href: "/painel/estoque", label: "Estoque" }] : []),
+    ...(modules.shipping ? [{ href: "/painel/envios", label: "Envios" }] : []),
     ...rest,
   ];
 }

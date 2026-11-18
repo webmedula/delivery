@@ -3,6 +3,7 @@
 import type { BusinessType, FulfillmentType, OrderStatus } from "@prisma/client";
 import { formatBRL } from "./money";
 import { termsFor } from "./niche";
+import { CORREIOS_TRACKING_URL, formatDays, isCorreiosCode } from "./shipping";
 
 /** Colunas do quadro de pedidos do painel. */
 export const BOARD_COLUMNS = [
@@ -27,11 +28,12 @@ export function nextStep(status: OrderStatus, fulfillment: FulfillmentType, type
     case "CONFIRMED":
       return { status: "PREPARING", label: t.startAction };
     case "PREPARING":
+      if (fulfillment === "SHIPPING") return { status: "OUT_FOR_DELIVERY", label: "Marcar como enviado" };
       return fulfillment === "DELIVERY"
         ? { status: "OUT_FOR_DELIVERY", label: "Saiu para entrega" }
         : { status: "READY_FOR_PICKUP", label: "Pronto para retirar" };
     case "OUT_FOR_DELIVERY":
-      return { status: "COMPLETED", label: "Entregue" };
+      return { status: "COMPLETED", label: fulfillment === "SHIPPING" ? "Cliente recebeu" : "Entregue" };
     case "READY_FOR_PICKUP":
       return { status: "COMPLETED", label: "Cliente retirou" };
     default:
@@ -63,10 +65,12 @@ export function trackingSteps(fulfillment: FulfillmentType, type: BusinessType =
   return [
     { label: "Recebido", statuses: ["PENDING"] },
     { label: termsFor(type).preparing, statuses: ["CONFIRMED", "PREPARING"] },
-    fulfillment === "DELIVERY"
-      ? { label: "Saiu para entrega", statuses: ["OUT_FOR_DELIVERY"] }
-      : { label: "Pronto para retirar", statuses: ["READY_FOR_PICKUP"] },
-    { label: fulfillment === "DELIVERY" ? "Entregue" : "Retirado", statuses: ["COMPLETED"] },
+    fulfillment === "SHIPPING"
+      ? { label: "Enviado", statuses: ["OUT_FOR_DELIVERY"] }
+      : fulfillment === "DELIVERY"
+        ? { label: "Saiu para entrega", statuses: ["OUT_FOR_DELIVERY"] }
+        : { label: "Pronto para retirar", statuses: ["READY_FOR_PICKUP"] },
+    { label: fulfillment === "PICKUP" ? "Retirado" : "Entregue", statuses: ["COMPLETED"] },
   ] as { label: string; statuses: OrderStatus[] }[];
 }
 
@@ -84,6 +88,7 @@ export type EtaRules = {
 
 /** Faixa de tempo da loja para o tipo de pedido, ou null se a loja não informou. */
 export function etaFor(rules: EtaRules, fulfillment: FulfillmentType): { min: number; max: number } | null {
+  if (fulfillment === "SHIPPING") return null; // envio tem prazo em dias, da forma de envio
   const [min, max] =
     fulfillment === "DELIVERY" ? [rules.deliveryMinutesMin, rules.deliveryMinutesMax] : [rules.pickupMinutesMin, rules.pickupMinutesMax];
   if (!min) return null;
@@ -159,6 +164,10 @@ type MessageOrder = {
   etaMinutesMin: number | null;
   etaMinutesMax: number | null;
   courierName?: string | null;
+  shippingMethodName?: string | null;
+  shippingDaysMin?: number | null;
+  shippingDaysMax?: number | null;
+  trackingCode?: string | null;
 };
 
 /** Mensagem pronta de WhatsApp para a loja avisar o cliente sobre a etapa atual do pedido. */
@@ -183,13 +192,21 @@ export function customerMessage(order: MessageOrder, storeName: string, tracking
       body = `${hi} ${cap(ref)} ${termsFor(type).preparingMessage}.${eta}`;
       break;
     case "OUT_FOR_DELIVERY":
+      if (order.fulfillment === "SHIPPING") {
+        const how = order.shippingMethodName ? ` por ${order.shippingMethodName}` : "";
+        const days = formatDays(order.shippingDaysMin ?? null, order.shippingDaysMax ?? null);
+        body = `${hi} ${cap(ref)} foi enviado${how}.${days ? ` Prazo: ${days}.` : ""}`;
+        if (order.trackingCode)
+          body += `\nCódigo de rastreio: ${order.trackingCode}${isCorreiosCode(order.trackingCode) ? `\nRastreie nos Correios: ${CORREIOS_TRACKING_URL}` : ""}`;
+        break;
+      }
       body = `${hi} ${cap(ref)} saiu para entrega${order.courierName ? ` com ${order.courierName.trim().split(/\s+/)[0]}` : ""} e logo chega aí.${toPay}`;
       break;
     case "READY_FOR_PICKUP":
       body = `${hi} ${cap(ref)} está pronto para retirar${storeAddress ? ` em ${storeAddress}` : ""}.${toPay}`;
       break;
     case "COMPLETED":
-      body = `${hi} ${cap(ref)} foi ${order.fulfillment === "DELIVERY" ? "entregue" : "retirado"}. Obrigado pela preferência!`;
+      body = `${hi} ${cap(ref)} foi ${order.fulfillment === "PICKUP" ? "retirado" : "entregue"}. Obrigado pela preferência!`;
       break;
     case "CANCELED":
       body = `${hi} Infelizmente ${ref} foi cancelado. Se quiser, fale com a gente por aqui.`;

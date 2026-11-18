@@ -8,6 +8,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { Prisma, type OrderStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { deleteAbandonedImages, deleteUnusedImages } from "@/lib/images";
+import { isUf, normalizeTrackingCode, parseShippingMethods } from "@/lib/shipping";
+import { imageIdFromUrl } from "@/lib/image-url";
 import { hashPassword, requireStoreUser } from "@/lib/auth";
 import { randomBytes, randomInt } from "node:crypto";
 import { parseBRLToCents } from "@/lib/money";
@@ -40,11 +43,67 @@ export async function updateOrderStatus(formData: FormData) {
     select: { acceptedAt: true, dispatchedAt: true, completedAt: true, canceledAt: true },
   });
   if (!order) return;
-  await db.order.updateMany({ where: { id, storeId }, data: { status, ...stampsFor(status, order) } });
+  // Ao marcar como enviado, o código de rastreio pode vir junto.
+  const tracking = formData.has("trackingCode") ? { trackingCode: normalizeTrackingCode(String(formData.get("trackingCode"))) } : {};
+  await db.order.updateMany({ where: { id, storeId }, data: { status, ...stampsFor(status, order), ...tracking } });
   // Pedido cancelado: as peças voltam para o estoque.
   if (status === "CANCELED") await releaseStock(db, id);
   revalidatePath("/painel");
   revalidatePath("/painel/historico");
+}
+
+/** Código de rastreio de um pedido enviado (pode ser preenchido ou corrigido depois). */
+export async function setTrackingCode(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.order.updateMany({
+    where: { id: String(formData.get("orderId")), storeId, fulfillment: "SHIPPING" },
+    data: { trackingCode: normalizeTrackingCode(String(formData.get("trackingCode") ?? "")) },
+  });
+  revalidatePath("/painel");
+  revalidatePath("/painel/historico");
+}
+
+// --- Envios ---
+
+export type ShippingState = { error?: string; ok?: boolean; savedAt?: number; ids?: string[] } | undefined;
+
+/** Liga/desliga o envio e salva a tabela de frete (cria, edita e apaga formas de envio). */
+export async function saveShippingSettings(_: ShippingState, formData: FormData): Promise<ShippingState> {
+  const { storeId, store } = await requireStoreUser();
+  const acceptsShipping = formData.get("acceptsShipping") === "on";
+  const originUf = String(formData.get("originUf") ?? "");
+  if (acceptsShipping && !isUf(originUf)) return { error: "Escolha o estado de onde você envia." };
+  const freeRaw = String(formData.get("freeAbove") ?? "").trim();
+  const freeAboveCents = freeRaw ? parseBRLToCents(freeRaw) : null;
+  if (freeRaw && !freeAboveCents) return { error: "Valor do frete grátis inválido." };
+  const parsed = parseShippingMethods(String(formData.get("methods") ?? "[]"), parseBRLToCents);
+  if (!parsed.ok) return { error: parsed.error };
+  if (acceptsShipping && !parsed.methods.some((m) => m.active)) return { error: "Cadastre pelo menos uma forma de envio ligada (ex.: PAC)." };
+  if (!acceptsShipping && !store.acceptsDelivery && !store.acceptsPickup)
+    return { error: "Sua loja precisa de pelo menos uma forma de receber: envio, entrega ou retirada (em Minha loja)." };
+
+  const existing = await db.shippingMethod.findMany({ where: { storeId }, select: { id: true } });
+  const known = new Set(existing.map((m) => m.id));
+  const kept = new Set(parsed.methods.filter((m) => m.id && known.has(m.id)).map((m) => m.id!));
+  const ids = await db.$transaction(async (tx) => {
+    await tx.store.update({
+      where: { id: storeId },
+      data: { acceptsShipping, shippingOriginUf: isUf(originUf) ? originUf : null, shippingFreeAboveCents: freeAboveCents },
+    });
+    await tx.shippingMethod.deleteMany({ where: { storeId, id: { notIn: [...kept] } } });
+    const out: string[] = [];
+    for (const m of parsed.methods) {
+      const { id, ...values } = m;
+      if (id && kept.has(id)) out.push((await tx.shippingMethod.update({ where: { id }, data: values })).id);
+      else out.push((await tx.shippingMethod.create({ data: { ...values, storeId } })).id);
+    }
+    return out;
+  });
+  revalidatePath("/painel/envios");
+  revalidatePath("/painel", "layout");
+  revalidatePath(`/loja/${store.slug}`, "layout");
+  // Ids das formas salvas, na ordem do formulário (as novas ganham id e não são recriadas no próximo salvar).
+  return { ok: true, savedAt: Date.now(), ids };
 }
 
 // --- Entregadores ---
@@ -159,6 +218,11 @@ export async function deleteCategory(formData: FormData) {
   revalidatePath("/painel/cardapio");
 }
 
+/** Foto do produto: link http(s) ou foto enviada ao sistema (/img/...). */
+function isPhotoUrl(url: string) {
+  return /^https?:\/\/\S+$/.test(url) || !!imageIdFromUrl(url);
+}
+
 export type ProductFormState = { error?: string; ok?: boolean; savedAt?: number } | undefined;
 
 const productSchema = z.object({
@@ -168,7 +232,7 @@ const productSchema = z.object({
   price: z.string(),
   compareAt: z.string().optional(),
   categoryId: z.string().optional(),
-  imageUrl: z.string().trim().url("Link da foto inválido.").optional().or(z.literal("")),
+  imageUrl: z.string().trim().max(1000).refine((v) => v === "" || isPhotoUrl(v), "Link da foto inválido.").optional(),
   images: z.string().max(4000).optional(),
   stock: z.string().optional(),
   variants: z.string().max(40000).optional(),
@@ -192,7 +256,7 @@ export async function saveProduct(_: ProductFormState, formData: FormData): Prom
   }
 
   const images = splitList((data.images ?? "").replace(/\s+/g, "\n"), 8);
-  for (const url of images) if (!/^https?:\/\/\S+$/.test(url)) return { error: `Link de foto inválido: ${url.slice(0, 60)}` };
+  for (const url of images) if (!isPhotoUrl(url)) return { error: `Link de foto inválido: ${url.slice(0, 60)}` };
 
   let stock: number | null = null;
   if (data.stock?.trim()) {
@@ -234,6 +298,8 @@ export async function saveProduct(_: ProductFormState, formData: FormData): Prom
         else await tx.productVariant.create({ data: { ...values, storeId, productId: product.id } });
       }
     });
+    // Fotos enviadas que saíram do produto deixam de ocupar espaço.
+    await deleteUnusedImages(storeId, [product.imageUrl, ...product.images]);
   } else {
     const total = await db.product.count({ where: { storeId } });
     if (store.plan.maxProducts > 0 && total >= store.plan.maxProducts)
@@ -247,6 +313,7 @@ export async function saveProduct(_: ProductFormState, formData: FormData): Prom
       },
     });
   }
+  await deleteAbandonedImages(storeId);
   revalidatePath("/painel/cardapio");
   revalidatePath("/painel/estoque");
   revalidatePath(`/loja/${store.slug}`, "layout");
@@ -277,7 +344,10 @@ export async function toggleProduct(formData: FormData) {
 
 export async function deleteProduct(formData: FormData) {
   const { storeId } = await requireStoreUser();
-  await db.product.deleteMany({ where: { id: String(formData.get("id")), storeId } });
+  const product = await db.product.findFirst({ where: { id: String(formData.get("id")), storeId }, select: { id: true, imageUrl: true, images: true } });
+  if (!product) return;
+  await db.product.delete({ where: { id: product.id } });
+  await deleteUnusedImages(storeId, [product.imageUrl, ...product.images]);
   revalidatePath("/painel/cardapio");
 }
 
@@ -298,6 +368,7 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
 
   const logoUrl = get("logoUrl");
   if (logoUrl && !/^(https?:\/\/|\/)\S+$/.test(logoUrl)) return { error: "Link do logo inválido." };
+  const previousLogo = (await db.store.findUnique({ where: { id: storeId }, select: { logoUrl: true } }))?.logoUrl;
   const themeColor = get("themeColor").toLowerCase();
   if (themeColor && !HEX_COLOR.test(themeColor)) return { error: "Cor inválida." };
 
@@ -308,7 +379,8 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
 
   const acceptsDelivery = formData.get("acceptsDelivery") === "on";
   const acceptsPickup = formData.get("acceptsPickup") === "on";
-  if (!acceptsDelivery && !acceptsPickup) return { error: "Ative entrega, retirada ou os dois." };
+  if (!acceptsDelivery && !acceptsPickup && !(await db.store.findUnique({ where: { id: storeId }, select: { acceptsShipping: true } }))?.acceptsShipping)
+    return { error: "Ative entrega, retirada ou o envio pelos Correios (em Envios)." };
   const businessType = get("businessType");
   const whatsappCheckout = formData.get("whatsappCheckout") === "on";
   if (whatsappCheckout && !whatsapp) return { error: "Para fechar pedidos pelo WhatsApp, informe o WhatsApp da loja." };
@@ -336,6 +408,7 @@ export async function updateStoreSettings(_: SettingsState, formData: FormData):
       ...(isBusinessType(businessType) ? { businessType } : {}),
     },
   });
+  if (previousLogo !== (logoUrl || null)) await deleteUnusedImages(storeId, [previousLogo]);
   revalidatePath("/painel", "layout");
   return { ok: true };
 }

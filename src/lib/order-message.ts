@@ -16,6 +16,7 @@ type SummaryOrder = {
   loyaltyReward: boolean;
   address: string | null;
   deliveryZoneName: string | null;
+  shippingMethodName?: string | null;
   notes: string | null;
   customerName: string;
   items: { quantity: number; name: string; unitPriceCents: number }[];
@@ -33,12 +34,17 @@ export function orderSummaryMessage(order: SummaryOrder, opts: { trackingUrl?: s
       ? [`Desconto: −${formatBRL(order.discountCents)}${order.couponCode ? ` (cupom ${order.couponCode})` : order.loyaltyReward ? " (fidelidade)" : ""}`]
       : []),
     ...(order.fulfillment === "DELIVERY" && order.deliveryFeeCents > 0 ? [`Entrega: ${formatBRL(order.deliveryFeeCents)}`] : []),
+    ...(order.fulfillment === "SHIPPING"
+      ? [`Frete${order.shippingMethodName ? ` (${order.shippingMethodName})` : ""}: ${order.deliveryFeeCents > 0 ? formatBRL(order.deliveryFeeCents) : "grátis"}`]
+      : []),
     combine
       ? `Total: ${formatBRL(order.totalCents)}`
       : `Total: ${formatBRL(order.totalCents)} (${paymentLabel[order.paymentMethod]}${order.paymentStatus === "PAID" ? ", já pago" : ""})`,
     order.fulfillment === "DELIVERY"
       ? `Entregar em: ${order.address}${order.deliveryZoneName ? ` (${order.deliveryZoneName})` : ""}`
-      : "Vou retirar na loja.",
+      : order.fulfillment === "SHIPPING"
+        ? `Enviar para: ${order.address}`
+        : "Vou retirar na loja.",
     ...(order.notes ? [`Obs.: ${order.notes}`] : []),
     ...(combine ? ["", "Como faço o pagamento?"] : []),
     ...(opts.trackingUrl ? ["", `Pedido: ${opts.trackingUrl}`] : []),
