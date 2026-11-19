@@ -124,7 +124,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                     <span className="block text-xs text-stone-500">{formatPhone(o.customerPhone)}</span>
                   </td>
                   <td className="px-3 py-2">
-                    {o.fulfillment === "DELIVERY" ? (o.deliveryZoneName ?? "Entrega") : o.fulfillment === "SHIPPING" ? `Envio${o.shippingUf ? ` ${o.shippingUf}` : ""}${o.trackingCode ? ` · ${o.trackingCode}` : ""}` : "Retirada"}
+                    {o.fulfillment === "DELIVERY" ? (o.deliveryZoneName ?? "Entrega") : o.fulfillment === "SHIPPING" ? `Envio${o.shippingUf ? ` ${o.shippingUf}` : ""}${o.trackingCode ? ` · ${o.trackingCode}` : ""}` : o.fulfillment === "TABLE" ? (o.tableLabel ?? "Mesa") : "Retirada"}
                     {o.fulfillment === "DELIVERY" && o.deliveryFeeCents > 0 && <span className="block text-xs text-stone-500">taxa {formatBRL(o.deliveryFeeCents)}</span>}
                   </td>
                   <td className="px-3 py-2">{o.courierName ?? "—"}</td>

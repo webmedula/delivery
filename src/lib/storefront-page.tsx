@@ -9,6 +9,7 @@ import { formatPhone } from "@/lib/phone";
 import { onlineMethods } from "@/lib/payments";
 import { etaFor, formatMinutes } from "@/lib/delivery";
 import { modulesFor, termsFor } from "@/lib/niche";
+import { billSummary } from "@/lib/tables";
 
 
 export async function getStore(slug: string) {
@@ -27,10 +28,35 @@ export async function getStore(slug: string) {
   });
 }
 
-/** Catálogo da loja. Com productId, já abre o produto (link para compartilhar /loja/x/produto/id). */
-export async function renderStore(slug: string, productId?: string) {
+/** Mesa do QR code com a conta aberta (pedidos ainda não fechados pela loja). */
+async function getTableWithBill(storeId: string, code: string) {
+  const table = await db.diningTable.findFirst({ where: { storeId, code } });
+  if (!table) return null;
+  const orders = await db.order.findMany({
+    where: { tableId: table.id, billClosedAt: null },
+    select: { status: true, paymentStatus: true, totalCents: true, createdAt: true, items: { select: { name: true, quantity: true, unitPriceCents: true } } },
+  });
+  const bill = billSummary(orders);
+  return { table, bill: bill.orders > 0 ? bill : null };
+}
+
+/**
+ * Catálogo da loja. Com productId, já abre o produto (link para compartilhar /loja/x/produto/id).
+ * Com tableCode, abre no modo mesa (QR code da mesa).
+ */
+export async function renderStore(slug: string, productId?: string, tableCode?: string) {
   const store = await getStore(slug);
   if (!store) notFound();
+  const atTable = tableCode ? await getTableWithBill(store.id, tableCode) : null;
+  if (tableCode && !atTable) notFound();
+  if (atTable && !atTable.table.active) {
+    return (
+      <main className="mx-auto max-w-lg px-4 py-16 text-center">
+        <p className="text-lg font-semibold">{store.name}</p>
+        <p className="mt-2 text-stone-600">Os pedidos pelo celular estão pausados nesta mesa. Chame o garçom para pedir.</p>
+      </main>
+    );
+  }
   if (productId && !store.products.some((p) => p.id === productId)) notFound();
   const modules = modulesFor(store);
   const terms = termsFor(store.businessType);
@@ -88,6 +114,15 @@ export async function renderStore(slug: string, productId?: string) {
         terms: { catalog: terms.catalog, catalogLower: terms.catalogLower, emptyCatalog: terms.emptyCatalog, poweredBy: terms.poweredBy },
       }}
       initialProductId={productId}
+      table={
+        atTable
+          ? {
+              code: atTable.table.code,
+              label: atTable.table.label,
+              bill: atTable.bill && { orders: atTable.bill.orders, totalCents: atTable.bill.totalCents, dueCents: atTable.bill.dueCents, items: atTable.bill.items },
+            }
+          : undefined
+      }
       customer={
         customer && {
           name: customer.name,

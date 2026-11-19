@@ -26,6 +26,7 @@ import { isValidPhone, normalizePhone } from "@/lib/phone";
 import { releaseStock } from "@/lib/stock";
 import { modulesFor, isBusinessType } from "@/lib/niche";
 import { parseVariantRows, splitList } from "@/lib/variants";
+import { tablesToCreate } from "@/lib/tables";
 
 const DEMO_BLOCKED = "Esta é uma loja de demonstração: assinatura e pagamento online ficam desligados.";
 
@@ -603,4 +604,103 @@ export async function createCustomerLoginCode(customerId: string): Promise<{ cod
     },
   });
   return { code };
+}
+
+// --- Mesas (pedido na mesa por QR code) ---
+
+export type TableState = { error?: string; ok?: boolean; created?: number } | undefined;
+
+/** Código do QR da mesa: curto (o QR fica simples de ler) e difícil de adivinhar. */
+const newTableCode = () => randomBytes(6).toString("base64url");
+
+/** Cria várias mesas numeradas de uma vez, ex.: "Mesa" de 1 a 12. */
+export async function createTables(_: TableState, formData: FormData): Promise<TableState> {
+  const { storeId } = await requireStoreUser();
+  const existing = await db.diningTable.findMany({ where: { storeId }, select: { label: true, position: true } });
+  const plan = tablesToCreate(
+    String(formData.get("prefix") ?? ""),
+    String(formData.get("from") ?? ""),
+    String(formData.get("to") ?? ""),
+    existing.map((t) => t.label),
+  );
+  if ("error" in plan) return { error: plan.error };
+  const start = existing.reduce((m, t) => Math.max(m, t.position), 0) + 1;
+  await db.diningTable.createMany({
+    data: plan.labels.map((label, i) => ({ storeId, label, code: newTableCode(), position: start + i })),
+    skipDuplicates: true,
+  });
+  revalidatePath("/painel/mesas");
+  return { ok: true, created: plan.labels.length };
+}
+
+export async function renameTable(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const label = String(formData.get("label") ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+  if (!label) return;
+  try {
+    await db.diningTable.updateMany({ where: { id: String(formData.get("id")), storeId }, data: { label } });
+  } catch (e) {
+    if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e; // nome repetido: ignora
+  }
+  revalidatePath("/painel/mesas");
+}
+
+export async function toggleTable(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const table = await db.diningTable.findFirst({ where: { id: String(formData.get("id")), storeId } });
+  if (!table) return;
+  await db.diningTable.update({ where: { id: table.id }, data: { active: !table.active } });
+  revalidatePath("/painel/mesas");
+}
+
+/** Troca o QR da mesa (o impresso para de funcionar). Use se alguém levou o QR para casa. */
+export async function resetTableCode(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.diningTable.updateMany({ where: { id: String(formData.get("id")), storeId }, data: { code: newTableCode() } });
+  revalidatePath("/painel/mesas");
+}
+
+export async function deleteTable(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.diningTable.deleteMany({ where: { id: String(formData.get("id")), storeId } });
+  revalidatePath("/painel/mesas");
+}
+
+/** "Atendido": tira o chamado do garçom / pedido de conta do quadro. */
+export async function dismissTableCall(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await db.diningTable.updateMany({ where: { id: String(formData.get("id")), storeId }, data: { callKind: null, calledAt: null } });
+  revalidatePath("/painel");
+  revalidatePath("/painel/mesas");
+}
+
+/**
+ * Fecha a conta da mesa: os pedidos saem da conta aberta, os que ainda estavam
+ * em andamento são dados como servidos e o chamado da mesa é apagado.
+ */
+export async function closeTableBill(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  const table = await db.diningTable.findFirst({ where: { id: String(formData.get("id")), storeId } });
+  if (!table) return;
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    const orders = await tx.order.findMany({
+      where: { storeId, tableId: table.id, billClosedAt: null },
+      select: { id: true, status: true, paymentStatus: true, acceptedAt: true, dispatchedAt: true, completedAt: true, canceledAt: true },
+    });
+    for (const o of orders) {
+      // Pedido pago online que nunca foi pago fica de fora da conta e é cancelado.
+      const unpaid = o.paymentStatus === "AWAITING";
+      const finished = o.status === "COMPLETED" || o.status === "CANCELED";
+      const status: OrderStatus = unpaid ? "CANCELED" : finished ? o.status : "COMPLETED";
+      await tx.order.update({
+        where: { id: o.id },
+        data: { billClosedAt: now, ...(status !== o.status ? { status, ...stampsFor(status, o, now) } : {}) },
+      });
+    }
+    await tx.diningTable.update({ where: { id: table.id }, data: { callKind: null, calledAt: null } });
+  });
+  revalidatePath("/painel");
+  revalidatePath("/painel/mesas");
+  revalidatePath("/painel/historico");
 }

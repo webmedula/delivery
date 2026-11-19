@@ -6,7 +6,8 @@ import { formatBRL } from "@/lib/money";
 import { orderStatusLabelsFor, paymentLabel, paymentStatusLabel } from "@/lib/order-status";
 import type { BusinessType } from "@prisma/client";
 import { boardColumns, OPEN_STATUSES, brDayStart, courierMessage, customerMessage, formatEta, minutesSince, nextStep } from "@/lib/delivery";
-import { setTrackingCode, updateOrderStatus } from "./actions";
+import { dismissTableCall, setTrackingCode, updateOrderStatus } from "./actions";
+import { activeCall, CALL_TTL_MINUTES, callText, compareTableLabels } from "@/lib/tables";
 import { orderStatusText } from "@/lib/niche";
 import { formatDays } from "@/lib/shipping";
 import { AutoRefresh } from "@/components/AutoRefresh";
@@ -42,6 +43,17 @@ export default async function OrdersPage() {
     }),
     db.order.count({ where: { storeId, status: "COMPLETED", completedAt: { gte: startOfDay } } }),
   ]);
+  // Mesas que chamaram o garçom ou pediram a conta (o chamado expira sozinho).
+  const now = new Date();
+  const calls = (
+    await db.diningTable.findMany({
+      where: { storeId, calledAt: { gte: new Date(now.getTime() - CALL_TTL_MINUTES * 60_000) } },
+      select: { id: true, label: true, callKind: true, calledAt: true },
+    })
+  )
+    .map((t) => ({ ...t, kind: activeCall(t, now) }))
+    .filter((t) => t.kind)
+    .sort((a, b) => a.calledAt!.getTime() - b.calledAt!.getTime() || compareTableLabels(a.label, b.label));
 
   // Quantos pedidos o cliente já fez até este (inclusive), para mostrar "Primeiro pedido" / "5º pedido".
   const nth = new Map(
@@ -59,8 +71,11 @@ export default async function OrdersPage() {
     orderBy: { name: "asc" },
   });
   const courierLinks = new Map(await Promise.all(couriers.map(async (c) => [c.id, { url: await courierUrl(c.token), phone: c.phone, name: c.name }] as const)));
-  const now = new Date();
-  const pendingIds = open.filter((o) => o.status === "PENDING").map((o) => o.id);
+  // Chamado de mesa também toca o aviso (cada chamado novo conta como um item novo).
+  const pendingIds = [
+    ...open.filter((o) => o.status === "PENDING").map((o) => o.id),
+    ...calls.map((c) => `mesa:${c.id}:${c.calledAt!.getTime()}`),
+  ];
 
   return (
     <div className="space-y-6">
@@ -80,6 +95,23 @@ export default async function OrdersPage() {
         <NewOrderAlert pendingIds={pendingIds} />
       </div>
 
+      {calls.length > 0 && (
+        <div className="space-y-2">
+          {calls.map((c) => (
+            <form key={c.id} action={dismissTableCall} className="flex flex-wrap items-center gap-3 rounded-2xl border-2 border-emerald-500 bg-emerald-50 px-4 py-3">
+              <input type="hidden" name="id" value={c.id} />
+              <span className="text-2xl" aria-hidden>{c.kind === "BILL" ? "🧾" : "🙋"}</span>
+              <p className="flex-1 text-emerald-950">
+                <strong className="text-lg">{c.label}</strong> {callText[c.kind!]}
+                <span className="ml-2 text-sm text-emerald-800">há {minutesSince(c.calledAt!, now)} min</span>
+              </p>
+              {c.kind === "BILL" && <Link href={`/painel/mesas#mesa-${c.id}`} className="btn-ghost">Ver a conta</Link>}
+              <button className="btn">Atendido</button>
+            </form>
+          ))}
+        </div>
+      )}
+
       {awaiting.length > 0 && (
         <div className="card text-sm">
           <p className="font-medium">Aguardando pagamento online ({awaiting.length})</p>
@@ -93,7 +125,7 @@ export default async function OrdersPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        {boardColumns(store.businessType).map((col) => {
+        {boardColumns(store.businessType).map((c) => (c.key === "out" && !store.acceptsDelivery ? { ...c, title: "Pronto" } : c)).map((col) => {
           const orders = open.filter((o) => (col.statuses as readonly string[]).includes(o.status));
           return (
             <section key={col.key} className="rounded-2xl bg-stone-100 p-3">
@@ -148,9 +180,13 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
     <div className={`card space-y-3 ${o.status === "PENDING" ? "border-red-300 ring-2 ring-red-100" : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-lg font-bold">#{o.number}</span>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${o.fulfillment === "DELIVERY" ? "bg-sky-100 text-sky-800" : o.fulfillment === "SHIPPING" ? "bg-amber-100 text-amber-800" : "bg-violet-100 text-violet-800"}`}>
-          {o.fulfillment === "DELIVERY" ? "Entrega" : o.fulfillment === "SHIPPING" ? "Envio" : "Retirada"}
-        </span>
+        {o.fulfillment === "TABLE" ? (
+          <span className="rounded-lg bg-emerald-600 px-2.5 py-1 text-sm font-bold text-white">{o.tableLabel ?? "Mesa"}</span>
+        ) : (
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${o.fulfillment === "DELIVERY" ? "bg-sky-100 text-sky-800" : o.fulfillment === "SHIPPING" ? "bg-amber-100 text-amber-800" : "bg-violet-100 text-violet-800"}`}>
+            {o.fulfillment === "DELIVERY" ? "Entrega" : o.fulfillment === "SHIPPING" ? "Envio" : "Retirada"}
+          </span>
+        )}
         <span className={`ml-auto text-xs font-medium ${late ? "text-red-600" : "text-stone-500"}`} title={o.createdAt.toISOString()}>
           há {ageText}{late ? " · atrasado" : ""}
         </span>
@@ -158,7 +194,7 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
       <div className="text-sm">
         <p className="font-medium">
           {o.customerId ? <Link href={`/painel/clientes/${o.customerId}`} className="hover:underline">{o.customerName}</Link> : o.customerName}
-          {" · "}{formatPhone(o.customerPhone)}
+          {o.customerPhone && <>{" · "}{formatPhone(o.customerPhone)}</>}
         </p>
         {nth !== undefined && (
           <p className="text-xs text-stone-500">{nth <= 1 ? "Primeiro pedido" : `${nth}º pedido na loja`}</p>
@@ -173,6 +209,8 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
             <p><strong>{o.shippingMethodName ?? "Envio"}</strong> · frete {o.deliveryFeeCents ? formatBRL(o.deliveryFeeCents) : "grátis"}{formatDays(o.shippingDaysMin, o.shippingDaysMax) ? ` · ${formatDays(o.shippingDaysMin, o.shippingDaysMax)}` : ""}</p>
             <p className="select-all">{o.address}</p>
           </div>
+        ) : o.fulfillment === "TABLE" ? (
+          <p className="text-stone-600">Servir na <strong className="text-stone-900">{o.tableLabel ?? "mesa"}</strong></p>
         ) : (
           <p className="text-stone-600">Cliente vai retirar na loja</p>
         )}
@@ -236,14 +274,14 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
           )}
         </div>
       )}
-      <a
+      {o.fulfillment !== "TABLE" && o.customerPhone && <a
         href={whatsappLink(o.customerPhone, message)}
         target="_blank"
         rel="noopener"
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-600/30 bg-green-50 px-3 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
       >
         Avisar cliente no WhatsApp: &quot;{orderStatusText(o.status, o.fulfillment, businessType)}&quot;
-      </a>
+      </a>}
       <details className="text-sm">
         <summary className="cursor-pointer text-stone-500">Mais opções</summary>
         <form action={updateOrderStatus} className="mt-2 flex gap-2">

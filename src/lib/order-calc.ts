@@ -51,7 +51,7 @@ export function quoteOrder(
   cart: CartLine[],
   catalog: CatalogProduct[],
   rules: StoreRules,
-  fulfillment: "DELIVERY" | "PICKUP" | "SHIPPING",
+  fulfillment: "DELIVERY" | "PICKUP" | "SHIPPING" | "TABLE",
 ): OrderQuote {
   if (cart.length === 0) return { ok: false, error: "O carrinho está vazio." };
   if (fulfillment === "DELIVERY" && !rules.acceptsDelivery)
@@ -111,10 +111,11 @@ export function quoteOrder(
   }
 
   const subtotalCents = lines.reduce((sum, l) => sum + l.unitPriceCents * l.quantity, 0);
-  if (subtotalCents < rules.minOrderCents)
+  // Pedido mínimo é coisa de entrega: na mesa o cliente pede aos poucos.
+  if (fulfillment !== "TABLE" && subtotalCents < rules.minOrderCents)
     return { ok: false, error: "O pedido não atingiu o valor mínimo da loja." };
 
   // Entrega: taxa da loja ou do bairro. Envio: frete da tabela (calculado antes, em lib/shipping).
-  const deliveryFeeCents = fulfillment === "PICKUP" ? 0 : rules.deliveryFeeCents;
+  const deliveryFeeCents = fulfillment === "PICKUP" || fulfillment === "TABLE" ? 0 : rules.deliveryFeeCents;
   return { ok: true, lines, subtotalCents, deliveryFeeCents, totalCents: subtotalCents + deliveryFeeCents };
 }

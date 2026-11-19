@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatBRL } from "@/lib/money";
 import { placeOrder, previewCoupon } from "@/app/loja/[slug]/actions";
+import { TableBar, type TableInfo } from "@/components/TableBar";
 import { guessZone } from "@/lib/delivery";
 import { InstallInvite } from "@/components/InstallApp";
 import { colorSwatch } from "@/lib/variants";
@@ -45,7 +46,7 @@ type StoreInfo = {
   /** Textos do tipo de loja. */
   terms?: { catalog: string; catalogLower: string; emptyCatalog: string; poweredBy: string };
 };
-type Payment = "WHATSAPP" | "ONLINE_PIX" | "ONLINE_CARD" | "PIX" | "CASH" | "CARD_ON_DELIVERY";
+type Payment = "WHATSAPP" | "ONLINE_PIX" | "ONLINE_CARD" | "PIX" | "CASH" | "CARD_ON_DELIVERY" | "TAB";
 
 /** Item da sacola: "produto" ou "produto:variação". */
 const cartKey = (productId: string, variantId?: string) => (variantId ? `${productId}:${variantId}` : productId);
@@ -69,20 +70,30 @@ function rewardCents(subtotal: number, r: StoreInfo["reward"]) {
   return Math.min(subtotal, r.type === "PERCENT" ? Math.round((subtotal * r.value) / 100) : r.value);
 }
 
-export function Storefront({ store, sections, customer, initialProductId }: { store: StoreInfo; sections: Section[]; customer: CustomerInfo | null; initialProductId?: string }) {
+export function Storefront({ store, sections, customer, initialProductId, table }: {
+  store: StoreInfo; sections: Section[]; customer: CustomerInfo | null; initialProductId?: string;
+  /** Aberto pelo QR code da mesa: pedido sem endereço, que entra na conta da mesa. */
+  table?: TableInfo;
+}) {
   const terms = store.terms ?? { catalog: "Cardápio", catalogLower: "cardápio", emptyCatalog: "O cardápio ainda está sendo montado.", poweredBy: "Cardápio digital por" };
   const router = useRouter();
-  const storageKey = `cart:${store.slug}`;
+  // A sacola da mesa fica separada da sacola de entrega do mesmo aparelho.
+  const storageKey = table ? `cart:${store.slug}:mesa` : `cart:${store.slug}`;
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
-  const [fulfillment, setFulfillment] = useState<"DELIVERY" | "PICKUP" | "SHIPPING">(
+  const [fulfillment, setFulfillment] = useState<"DELIVERY" | "PICKUP" | "SHIPPING" | "TABLE">(
     // Na loja de roupas, retirar na loja é o mais comum; no delivery, a entrega.
-    store.acceptsDelivery && !(store.grid && store.acceptsPickup) ? "DELIVERY" : store.acceptsPickup ? "PICKUP" : store.shipping ? "SHIPPING" : "PICKUP",
+    table ? "TABLE" : store.acceptsDelivery && !(store.grid && store.acceptsPickup) ? "DELIVERY" : store.acceptsPickup ? "PICKUP" : store.shipping ? "SHIPPING" : "PICKUP",
   );
   const [shipForm, setShipForm] = useState<ShippingForm>(emptyShipping);
   const shipKey = `envio:${store.slug}`;
   // Com Pix online ligado, ele substitui o Pix pela chave (que exige conferência manual).
-  const paymentOptions: { value: Payment; label: string }[] = [
+  const paymentOptions: { value: Payment; label: string }[] = table ? [
+    // Na mesa: entra na conta e paga no fim, ou paga agora pelo celular (se a loja ligou o pagamento online).
+    { value: "TAB" as const, label: "Pagar no final, na conta da mesa" },
+    ...(store.online.pix ? [{ value: "ONLINE_PIX" as const, label: "Pix agora (pague pelo celular)" }] : []),
+    ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: "Cartão de crédito agora" }] : []),
+  ] : [
     ...(store.whatsappCheckout ? [{ value: "WHATSAPP" as const, label: "Combinar pelo WhatsApp" }] : []),
     ...(store.online.pix ? [{ value: "ONLINE_PIX" as const, label: "Pix (pague agora)" }] : [{ value: "PIX" as const, label: "Pix" }]),
     ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: "Cartão de crédito (pague agora)" }] : []),
@@ -190,6 +201,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
         customerName: String(form.get("customerName") ?? ""),
         customerPhone: phone,
         fulfillment,
+        tableCode: table?.code,
         deliveryZoneId: fulfillment === "DELIVERY" && zoneId ? zoneId : undefined,
         shipping: fulfillment === "SHIPPING" ? shipForm : undefined,
         address:
@@ -200,7 +212,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
         changeFor: String(form.get("changeFor") ?? "") || undefined,
         notes: String(form.get("notes") ?? "") || undefined,
         useReward: rewardActive,
-        couponCode: !rewardActive && coupon ? coupon.code : undefined,
+        couponCode: !rewardActive && coupon && !table ? coupon.code : undefined,
         marketingOptIn: form.get("marketingOptIn") === "on",
       });
       if (!result.ok) return setError(result.error);
@@ -212,7 +224,9 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
   }
 
   const cover = sections.flatMap((s) => s.products).find((p) => p.imageUrl)?.imageUrl ?? null;
-  const chips = [
+  const chips = table ? [
+    store.eta.pickup && { icon: <IconBag />, text: `Fica pronto em ${store.eta.pickup}` },
+  ].filter(Boolean) as { icon: React.ReactNode; text: string }[] : [
     store.acceptsDelivery && {
       icon: <IconBike />,
       text: `Entrega ${deliveryFeeText(store)}${store.eta.delivery ? ` · ${store.eta.delivery}` : ""}`,
@@ -296,6 +310,9 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
           </div>
         </header>
 
+        {/* Na mesa, a faixa da mesa (conta, garçom) vem antes de tudo. */}
+        {table && <TableBar slug={store.slug} table={table} />}
+
         {store.loyalty && (
           <Link
             href={`/loja/${store.slug}/conta`}
@@ -324,7 +341,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
           </Link>
         )}
 
-        <InstallInvite slug={store.slug} name={store.name} logoUrl={store.logoUrl} />
+        {!table && <InstallInvite slug={store.slug} name={store.name} logoUrl={store.logoUrl} />}
 
         {sections.length > 1 && <CategoryNav sections={sections} />}
 
@@ -420,7 +437,13 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
             </ul>
             {lines.length === 0 && <p className="text-sm text-stone-500">Sua sacola está vazia.</p>}
 
-            <div className="flex gap-2">
+            {table && (
+              <p className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900 ring-1 ring-emerald-600/15">
+                <span className="rounded-md bg-emerald-600 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-white">{table.label}</span>
+                O pedido vai direto para a cozinha e chega na sua mesa.
+              </p>
+            )}
+            {!table && <div className="flex gap-2">
               {store.acceptsDelivery && (
                 <button type="button" onClick={() => setFulfillment("DELIVERY")} className={fulfillment === "DELIVERY" ? "btn flex-1" : "btn-ghost flex-1"}>Entrega</button>
               )}
@@ -430,7 +453,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
               {store.shipping && (
                 <button type="button" onClick={() => setFulfillment("SHIPPING")} className={fulfillment === "SHIPPING" ? "btn flex-1" : "btn-ghost flex-1"}>Envio</button>
               )}
-            </div>
+            </div>}
             {fulfillment === "PICKUP" && store.address && <p className="text-sm text-stone-600">Retirada em: {store.address}</p>}
             {payment === "WHATSAPP" && (
               <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
@@ -447,12 +470,12 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
             ) : (
               <input
                 name="customerPhone"
-                placeholder="WhatsApp com DDD"
+                placeholder={table ? `WhatsApp com DDD (opcional${store.loyalty ? ", para ganhar selos" : ""})` : "WhatsApp com DDD"}
                 className="input"
                 inputMode="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                required
+                required={!table}
               />
             )}
             {fulfillment === "DELIVERY" && customer && customer.addresses.length > 0 && (
@@ -500,7 +523,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
             )}
             {fulfillment !== "SHIPPING" && (fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup) && (
               <p className="text-sm text-stone-600">
-                ⏱ {fulfillment === "DELIVERY" ? "Entrega" : "Fica pronto"} em {fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup}
+                ⏱ {fulfillment === "DELIVERY" ? "Entrega" : fulfillment === "TABLE" ? "Chega na mesa" : "Fica pronto"} em {fulfillment === "DELIVERY" ? store.eta.delivery : store.eta.pickup}
               </p>
             )}
 
@@ -527,7 +550,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
                 <span>★ Usar minha recompensa de fidelidade neste pedido</span>
               </label>
             )}
-            {!rewardActive && (
+            {!rewardActive && !table && (
               <div>
                 <div className="flex gap-2">
                   <input
@@ -544,7 +567,7 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
                 {couponError && <p className="mt-1 text-sm text-red-600">{couponError}</p>}
               </div>
             )}
-            {!customer?.marketingOptIn && (
+            {!customer?.marketingOptIn && (!table || phone.trim() !== "") && (
               <label className="flex items-center gap-2 text-sm text-stone-600">
                 <input type="checkbox" name="marketingOptIn" /> Quero receber promoções da loja pelo WhatsApp
               </label>
@@ -570,14 +593,15 @@ export function Storefront({ store, sections, customer, initialProductId }: { st
                 </div>
               )}
               <div className="flex justify-between text-base font-semibold"><span>Total</span><span>{formatBRL(subtotal - discount + fee)}</span></div>
-              {subtotal < store.minOrderCents && <p className="text-red-600">Pedido mínimo: {formatBRL(store.minOrderCents)}</p>}
+              {!table && subtotal < store.minOrderCents && <p className="text-red-600">Pedido mínimo: {formatBRL(store.minOrderCents)}</p>}
+              {payment === "TAB" && <p className="text-xs text-stone-500">Nada a pagar agora: o valor entra na conta da {table?.label ?? "mesa"}.</p>}
             </div>
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <button
               className={`btn w-full py-3 text-base ${payment === "WHATSAPP" ? "bg-[#1f9d55]! hover:bg-[#188a49]!" : ""}`}
-              disabled={pending || lines.length === 0 || subtotal < store.minOrderCents || (fulfillment === "SHIPPING" && !shipQuote.selected)}
+              disabled={pending || lines.length === 0 || (!table && subtotal < store.minOrderCents) || (fulfillment === "SHIPPING" && !shipQuote.selected)}
             >
-              {pending ? "Enviando..." : payment === "WHATSAPP" ? "Enviar pedido pelo WhatsApp" : payOnline ? "Fazer pedido e pagar" : "Fazer pedido"}
+              {pending ? "Enviando..." : payment === "WHATSAPP" ? "Enviar pedido pelo WhatsApp" : payOnline ? "Fazer pedido e pagar" : table ? `Pedir para a ${table.label}` : "Fazer pedido"}
             </button>
           </form>
         </div>
