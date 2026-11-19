@@ -175,6 +175,7 @@ Quatro lojas de demonstração para apresentar o sistema a quem está conhecendo
 | Açaí da Praia | `/loja/acai-da-praia` | `acai@demo.webtenda.com.br` |
 | Mercadinho Bom Preço | `/loja/mercadinho-bom-preco` | `mercado@demo.webtenda.com.br` |
 | Flor de Lis Moda (loja de roupas) | `/loja/flor-de-lis-moda` | `moda@demo.webtenda.com.br` |
+| Boteco da Esquina (bar com pedido na mesa) | `/loja/boteco-da-esquina/mesa/bar-5` (QR da Mesa 5) | `bar@demo.webtenda.com.br` |
 | Doce Encanto Confeitaria (encomendas) | `/loja/doce-encanto` | `doces@demo.webtenda.com.br` |
 
 Senha de todas: o valor de `DEMO_PASSWORD` (se não estiver definida, `demo1234`).

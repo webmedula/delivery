@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"><rect width="240" height="240" rx="56" fill="#92400e"/>
+<circle cx="120" cy="96" r="62" fill="#78350f"/>
+<path d="M150 74h14a16 16 0 0 1 16 16v22a16 16 0 0 1-16 16h-14v-12h12a6 6 0 0 0 6-6V92a6 6 0 0 0-6-6h-12z" fill="#fef3c7"/>
+<rect x="74" y="66" width="80" height="84" rx="10" fill="#fbbf24"/>
+<rect x="74" y="66" width="80" height="84" rx="10" fill="none" stroke="#fef3c7" stroke-width="6"/>
+<path d="M92 84v50M114 84v50M136 84v50" stroke="#f59e0b" stroke-width="6" stroke-linecap="round"/>
+<path d="M68 70c0-14 10-22 22-20 4-10 18-14 28-6 8-8 26-6 30 8 12 0 18 10 14 20-6 8-16 6-20 2-6 6-18 6-24 0-8 6-20 6-26 0-10 6-24 4-24-4z" fill="#fffbeb"/>
+<text x="120" y="194" text-anchor="middle" font-family="Poppins,Montserrat,Arial Black,Helvetica,Arial,sans-serif" font-weight="800" font-size="25" letter-spacing="3" fill="#fff">BOTECO</text>
+<text x="120" y="218" text-anchor="middle" font-family="Poppins,Montserrat,Arial Black,Helvetica,Arial,sans-serif" font-weight="600" font-size="13" letter-spacing="4" fill="#fde68a">DA ESQUINA</text></svg>

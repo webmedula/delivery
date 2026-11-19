@@ -48,6 +48,8 @@ type DemoStore = {
   notes?: (string | null)[];
   /** Encomendas (tipo PREORDER): regras da agenda e sinal. */
   preorder?: { minHours: number; weekdays: number[]; times: string[]; dailyLimit: number | null; depositPercent: number };
+  /** Pedido na mesa por QR code: quantas mesas e a fração do histórico feita na mesa. */
+  tables?: { count: number; share: number };
   /** Envio pelos Correios: estado de origem, frete grátis e formas de envio (preços em centavos). */
   shipping?: {
     originUf: string;
@@ -305,6 +307,53 @@ export const DEMO_STORES: DemoStore[] = [
     },
   },
   {
+    key: "bar",
+    color: "#b45309",
+    slug: "boteco-da-esquina",
+    name: "Boteco da Esquina",
+    description: "Chopp gelado, petiscos e porções para dividir. Sentou? Aponte a câmera para o QR code da mesa e peça pelo celular.",
+    address: "Rua do Comércio, 77 - Centro",
+    deliveryFeeCents: 0,
+    minOrderCents: 0,
+    acceptsPickup: true,
+    acceptsDelivery: false,
+    tables: { count: 12, share: 0.85 },
+    payments: ["PIX", "CARD_ON_DELIVERY", "CASH"],
+    notes: ["Chopp bem gelado, por favor", "Sem cebola na calabresa", "Molho à parte", "Traz mais 2 copos", null, null, null, null, null],
+    loyalty: { ordersRequired: 10, type: "FIXED", value: 1500, minOrderCents: 3000 },
+    coupons: [{ code: "HAPPYHOUR", type: "PERCENT", value: 15, minOrderCents: 4000, expiresInDays: 15 }],
+    campaign: { name: "Happy hour", message: "Oi {nome}! Hoje tem happy hour na {loja}: 15% off com o cupom {cupom}. Veja o cardápio: {link}", coupon: "HAPPYHOUR" },
+    orders: 110,
+    itemsPerOrder: [1, 2],
+    hours: [17, 24],
+    menu: {
+      Chopp: [
+        ["Chopp Pilsen 300ml", "Tirado na hora, colarinho cremoso", 990, img("1766589220698-c150265d4825")],
+        ["Chopp Pilsen 500ml", "Caneca gelada, a pedida para a mesa", 1490, img("1608270586620-248524c67de9")],
+        ["Cerveja 600ml", "Garrafa trincando, pergunte as marcas do dia", 1590, img("1436076863939-06870fe779c2")],
+      ],
+      Petiscos: [
+        ["Batata frita", "Porção de 500g, sequinha, com sal e páprica", 2890, img("1768252452214-38f555002147")],
+        ["Frango a passarinho", "Coxinhas da asa crocantes com alho frito e molho", 3990, img("1766589221324-656419e4c844")],
+        ["Calabresa acebolada", "Calabresa na chapa com cebola e pão francês", 3490, img("1766589152317-2bafe6f2923c")],
+        ["Isca de peixe", "Tilápia empanada com limão e molho tártaro", 4490, img("1697748836791-9ddf7e616ece")],
+        ["Bolinho de bacalhau", "8 unidades, receita da casa", 3290, img("1767974963436-2208b3553561")],
+        ["Pastel misto", "6 pastéis de carne e queijo", 2690, img("1769254870299-338bfd99aabd")],
+      ],
+      Pratos: [
+        ["Picanha na chapa", "400g fatiada, com farofa, vinagrete e fritas", 8990, img("1558030006-450675393462")],
+      ],
+      Drinks: [
+        ["Caipirinha de limão", "Cachaça, limão e açúcar. Também com vodka", 1890, img("1613478223460-f448a4de829d")],
+        ["Gin tônica", "Gin, tônica, limão siciliano e gelo", 2490, img("1573624658129-3f7856192f19")],
+      ],
+      "Sem álcool": [
+        ["Refrigerante lata", "Cola, guaraná ou limão, 350ml", 650, img("1696739696220-8d2e27465662")],
+        ["Limonada suíça", "Limão batido com leite condensado, 500ml", 1290, img("1717439062391-1c2932e1c051")],
+      ],
+    },
+  },
+  {
     key: "doces",
     color: "#92400e",
     slug: "doce-encanto",
@@ -390,6 +439,7 @@ const DEMO_ETA: Record<string, [number, number, number, number]> = {
   pizza: [45, 60, 25, 35],
   acai: [25, 40, 10, 15],
   mercado: [30, 50, 15, 20],
+  bar: [0, 0, 12, 20],
 };
 // Bairros dos clientes demo; a taxa sobe a partir da taxa base da loja.
 const DEMO_ZONES: [name: string, extraCents: number][] = [["Centro", 0], ["Vila Nova", 100], ["Boa Vista", 200], ["Jardim América", 300]];
@@ -491,6 +541,12 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   ];
   await tx.courier.createMany({ data: couriers });
 
+  // Mesas com QR code. Código fixo na demo: /loja/<slug>/mesa/<key>-<n> (ex.: /loja/boteco-da-esquina/mesa/bar-5).
+  const tables = Array.from({ length: demo.tables?.count ?? 0 }, (_, i) => ({
+    id: `${storeId}-t${i + 1}`, storeId, label: `Mesa ${i + 1}`, code: `${demo.key}-${i + 1}`, position: i + 1,
+  }));
+  if (tables.length) await tx.diningTable.createMany({ data: tables });
+
   // Cardápio (na loja de roupas, cada cor/tamanho entra nos pedidos como um item próprio)
   const products: { id: string; name: string; priceCents: number; variantId?: string; variantLabel?: string }[] = [];
   let position = 0;
@@ -567,7 +623,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   };
 
   // Pedidos: histórico dos últimos 30 dias + alguns em andamento agora.
-  type Draft = { at: Date; customer: (typeof customers)[number]; status: OrderStatus; scheduledFor?: Date };
+  type Draft = { at: Date; customer: (typeof customers)[number]; status: OrderStatus; table?: number; liveBill?: boolean; scheduledFor?: Date };
   const drafts: Draft[] = [];
   const [fromHour, toHour] = demo.hours;
   for (let i = 0; i < demo.orders; i++) {
@@ -576,7 +632,10 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     // hora de Brasília (UTC-3)
     at.setUTCHours(fromHour + 3 + Math.floor(rand() * (toHour - fromHour)), between(0, 59), between(0, 59), 0);
     while (at.getTime() > now.getTime() - 3 * 60 * 60_000) at.setTime(at.getTime() - DAY); // histórico fica no passado
-    drafts.push({ at, customer: weightedCustomer(), status: rand() < 0.06 ? "CANCELED" : "COMPLETED" });
+    const customer = weightedCustomer();
+    const status: OrderStatus = rand() < 0.06 ? "CANCELED" : "COMPLETED";
+    const table = demo.tables && rand() < demo.tables.share ? between(1, demo.tables.count) : undefined;
+    drafts.push({ at, customer, status, table });
   }
   // Mariana fica a 1 pedido da recompensa, Rafael já tem a recompensa liberada.
   const stampsOf = (c: (typeof customers)[number]) => drafts.filter((d) => d.customer === c && d.status === "COMPLETED").length;
@@ -627,10 +686,23 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       });
     });
   } else {
-    const live: OrderStatus[] = ["PENDING", "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP"];
+    // Loja sem entrega (bar com mesas): nada "saiu para entrega".
+    const live: OrderStatus[] = demo.acceptsDelivery === false
+      ? ["PREPARING", "READY_FOR_PICKUP"]
+      : ["PENDING", "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP"];
     live.forEach((status, i) => {
       drafts.push({ at: new Date(now.getTime() - (5 + i * 9) * 60_000), customer: customers[2 + ((i * 2) % (customers.length - 3))], status });
     });
+    // Mesas ocupadas agora: contas abertas com pedidos em várias etapas.
+    if (demo.tables) {
+      const liveTables: [table: number, status: OrderStatus, minutesAgo: number][] = [
+        [3, "COMPLETED", 58], [3, "COMPLETED", 34], [5, "COMPLETED", 27], [5, "PREPARING", 9], [5, "PENDING", 2],
+        [8, "COMPLETED", 31], [8, "READY_FOR_PICKUP", 6], [1, "PENDING", 4], [11, "PREPARING", 13],
+      ];
+      liveTables.forEach(([table, status, ago], i) =>
+        drafts.push({ at: new Date(now.getTime() - ago * 60_000), customer: customers[3 + (i % (customers.length - 4))], status, table, liveBill: true }),
+      );
+    }
   }
   drafts.sort((a, b) => a.at.getTime() - b.at.getTime());
 
@@ -657,8 +729,14 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       subtotal += p.priceCents * quantity;
       items.push({ orderId: id, productId: p.id, variantId: p.variantId ?? null, variantLabel: p.variantLabel ?? null, name: p.name, unitPriceCents: p.priceCents, quantity });
     }
-    let fulfillment: FulfillmentType =
-      d.status === "READY_FOR_PICKUP" || (d.status !== "OUT_FOR_DELIVERY" && demo.acceptsPickup && rand() < 0.2) ? "PICKUP" : "DELIVERY";
+    let fulfillment: FulfillmentType = d.table
+      ? "TABLE"
+      : demo.acceptsDelivery === false
+        ? "PICKUP"
+        : d.status === "READY_FOR_PICKUP" || (d.status !== "OUT_FOR_DELIVERY" && demo.acceptsPickup && rand() < 0.2) ? "PICKUP" : "DELIVERY";
+    const table = d.table ? tables[d.table - 1] : null;
+    // Na mesa, boa parte pede só com o nome (sem telefone); os clientes fiéis sempre se identificam.
+    const anonymous = !!table && customers.indexOf(d.customer) >= 2 && rand() < 0.6;
     // Loja que envia: parte dos pedidos vai pelos Correios para outras cidades.
     if (shipMethods.length && fulfillment === "DELIVERY" && rand() < 0.45) fulfillment = "SHIPPING";
     const dest = fulfillment === "SHIPPING" ? pick(SHIP_DESTINATIONS) : null;
@@ -673,7 +751,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     const zone = fulfillment === "DELIVERY" ? zoneOf(d.customer.address) : null;
     const fee = dest ? shipFee : (zone?.feeCents ?? 0);
     const eta = DEMO_ETA[demo.key];
-    const [etaMin, etaMax] = fulfillment === "DELIVERY" ? [eta?.[0], eta?.[1]] : [eta?.[2], eta?.[3]];
+    const [etaMin, etaMax] = fulfillment === "DELIVERY" ? [eta?.[0], eta?.[1]] : [eta?.[2] || undefined, eta?.[3] || undefined];
     // Datas de cada etapa: histórico concluído em um tempo realista; os em andamento até a etapa atual.
     const minutes = (m: number) => new Date(d.at.getTime() + m * 60_000);
     const total0 = (etaMin ?? 40) + between(-8, 12);
@@ -682,7 +760,8 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     const dispatchedAt = reached(["OUT_FOR_DELIVERY", "READY_FOR_PICKUP", "COMPLETED"])
       ? minutes(d.status === "COMPLETED" ? Math.round(total0 * 0.6) : Math.max(4, Math.round((now.getTime() - d.at.getTime()) / 60_000) - 3))
       : null;
-    let completedAt = d.status === "COMPLETED" ? minutes(total0) : null;
+    // Pedido recente (conta aberta): nada pode ter acontecido depois de agora.
+    let completedAt = d.status === "COMPLETED" ? new Date(Math.min(minutes(total0).getTime(), now.getTime() - 60_000)) : null;
     let shippedAt = dispatchedAt;
     if (dest && d.status === "COMPLETED") {
       // Envio: postado no dia seguinte, chega alguns dias depois (sem passar de agora).
@@ -699,13 +778,14 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     let couponCode: string | null = null;
     const first = !seen.has(d.customer.id);
     seen.add(d.customer.id);
-    if (first && firstOrderCoupon && rand() < 0.5) couponCode = firstOrderCoupon.code;
+    if (table) { /* pedido na mesa: sem cupom */ }
+    else if (first && firstOrderCoupon && rand() < 0.5) couponCode = firstOrderCoupon.code;
     else if (otherCoupon && subtotal >= (otherCoupon.minOrderCents ?? 0) && rand() < 0.15) couponCode = otherCoupon.code;
     if (couponCode) {
       const c = demo.coupons.find((x) => x.code === couponCode)!;
       discountCents = discount(c.type, c.value, subtotal);
     }
-    let paymentMethod: PaymentMethod = pick(demo.payments ?? ["PIX", "PIX", "CARD_ON_DELIVERY", "CARD_ON_DELIVERY", "CASH"]);
+    let paymentMethod: PaymentMethod = table ? "TAB" : pick(demo.payments ?? ["PIX", "PIX", "CARD_ON_DELIVERY", "CARD_ON_DELIVERY", "CASH"]);
     if (dest && (paymentMethod === "CASH" || paymentMethod === "CARD_ON_DELIVERY")) paymentMethod = "PIX";
     const total = subtotal + fee - discountCents;
     // Encomenda: sinal pago (pela chave Pix, marcado pela loja), menos na mais recente.
@@ -730,9 +810,13 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       fulfillment,
       paymentMethod,
       changeForCents: paymentMethod === "CASH" ? ([2000, 5000, 10000, 20000].find((v) => v > total) ?? Math.ceil(total / 10000) * 10000) : null,
-      customerId: d.customer.id,
-      customerName: d.customer.name,
-      customerPhone: d.customer.phone,
+      customerId: anonymous ? null : d.customer.id,
+      customerName: anonymous ? d.customer.name.split(" ")[0] : d.customer.name,
+      customerPhone: anonymous ? "" : d.customer.phone,
+      tableId: table?.id ?? null,
+      tableLabel: table?.label ?? null,
+      // Conta da mesa: as do histórico já foram fechadas; as de agora seguem abertas.
+      billClosedAt: table && !d.liveBill ? new Date((completedAt ?? d.at).getTime() + between(10, 40) * 60_000) : null,
       address: fulfillment === "DELIVERY" ? d.customer.address : dest?.address ?? null,
       shippingMethodId: shipMethod?.id ?? null,
       shippingMethodName: shipMethod?.name ?? null,
@@ -765,6 +849,12 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   });
   await tx.order.createMany({ data: orders });
   await tx.orderItem.createMany({ data: items });
+
+  // Chamados de agora: a Mesa 3 pediu a conta e a Mesa 10 chamou o garçom.
+  if (tables.length >= 10) {
+    await tx.diningTable.update({ where: { id: tables[2].id }, data: { callKind: "BILL", calledAt: new Date(now.getTime() - 2 * 60_000) } });
+    await tx.diningTable.update({ where: { id: tables[9].id }, data: { callKind: "WAITER", calledAt: new Date(now.getTime() - 60_000) } });
+  }
 
   // Campanha: metade dos destinatários já recebeu a mensagem.
   const audience = customers.filter((c) => c.marketingOptIn);

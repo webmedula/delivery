@@ -17,6 +17,7 @@ function navFor(store: Parameters<typeof modulesFor>[0]): NavItem[] {
     ...(modules.preorder ? [{ href: "/painel/encomendas", label: "Agenda" }] : []),
     { href: "/painel/historico", label: "Histórico" },
     ...(modules.couriers ? [{ href: "/painel/entregadores", label: "Entregadores" }] : []),
+    ...(modules.tables ? [{ href: "/painel/mesas", label: "Mesas" }] : []),
     { href: "/painel/cardapio", label: terms.catalog },
     ...(modules.stock ? [{ href: "/painel/estoque", label: "Estoque" }] : []),
     ...(modules.shipping ? [{ href: "/painel/envios", label: "Envios" }] : []),

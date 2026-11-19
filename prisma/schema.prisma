@@ -38,6 +38,7 @@ enum FulfillmentType {
   DELIVERY
   PICKUP
   SHIPPING // envio pelos Correios ou transportadora, com frete por estado
+  TABLE    // pedido feito na mesa, pelo QR code da mesa (sem endereço)
 }
 
 enum DiscountType {
@@ -59,6 +60,7 @@ enum PaymentMethod {
   CARD_ON_DELIVERY
   ONLINE_PIX       // Pix pago no cardápio, pela subconta Asaas da loja
   ONLINE_CARD      // cartão de crédito pago no cardápio, pela subconta Asaas da loja
+  TAB              // pedido na mesa: entra na conta da mesa, paga ao fechar a conta
 }
 
 // Situação do pagamento online do pedido. Pedidos pagos na entrega ficam NONE.
@@ -123,6 +125,7 @@ model Store {
   preorderDailyLimit     Int?     // máximo de encomendas por dia (vazio = sem limite)
   preorderClosedDates    String[] @default([]) // dias sem encomenda, ex.: "2026-12-25"
   depositPercent         Int      @default(0)   // sinal cobrado no pedido (0 = sem sinal, 100 = tudo antecipado)
+  diningTables           DiningTable[]
 
   planId             String
   plan               Plan               @relation(fields: [planId], references: [id])
@@ -291,6 +294,11 @@ model Order {
   scheduledFor       DateTime?
   depositCents       Int?
   depositPaidAt      DateTime?       // sinal confirmado (online pelo Asaas ou marcado pela loja)
+  // Pedido na mesa (fulfillment TABLE): mesa do QR code (nome copiado) e quando a conta da mesa foi fechada.
+  tableId            String?
+  table              DiningTable?    @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableLabel         String?
+  billClosedAt       DateTime?
   items            OrderItem[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -302,6 +310,7 @@ model Order {
   @@index([storeId, status])
   @@index([courierId])
   @@index([storeId, scheduledFor])
+  @@index([tableId, billClosedAt])
 }
 
 // Bairro atendido e sua taxa de entrega. Se a loja tem bairros, o cliente escolhe um na sacola
@@ -370,6 +379,26 @@ model Courier {
   orders    Order[]
   createdAt DateTime @default(now())
 
+  @@index([storeId])
+}
+
+// Mesa do salão. O QR code impresso na mesa leva a /loja/[slug]/mesa/[code], e o pedido
+// chega no quadro com o nome da mesa. Os pedidos somam na conta da mesa até a loja fechar a conta.
+model DiningTable {
+  id        String    @id @default(cuid())
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  label     String    // ex.: "Mesa 5", "Varanda 2", "Balcão"
+  code      String    @unique // código aleatório do QR (trocar invalida o QR antigo)
+  active    Boolean   @default(true)
+  position  Int       @default(0)
+  // Chamado feito pelo cliente na mesa: WAITER (chamar garçom) ou BILL (pedir a conta).
+  callKind  String?
+  calledAt  DateTime?
+  orders    Order[]
+  createdAt DateTime  @default(now())
+
+  @@unique([storeId, label])
   @@index([storeId])
 }
 
