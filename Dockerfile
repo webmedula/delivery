@@ -17,6 +17,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/prisma ./prisma
+# O seed (prisma/seed.ts e prisma/demo.ts) importa código de src/lib na subida.
+COPY --from=build /app/src ./src
+COPY --from=build /app/tsconfig.json ./
 COPY --from=build /app/next.config.ts ./
 RUN chown -R node:node /app
 USER node
