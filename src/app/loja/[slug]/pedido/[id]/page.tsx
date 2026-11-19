@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
@@ -24,6 +24,8 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   const sendNow = (await searchParams).enviar === "1";
   let order = await db.order.findFirst({ where: { id, store: { slug } }, include: { items: true, store: true, table: true } });
   if (!order) notFound();
+  // Agendamento (barbearia, salão) tem página própria.
+  if (order.fulfillment === "APPOINTMENT") redirect(`/loja/${slug}/agendamento/${order.id}`);
   // Se o webhook ainda não chegou, pergunta ao Asaas se o cliente já pagou.
   if (order.paymentStatus === "AWAITING") {
     await syncOrderPayment(order);

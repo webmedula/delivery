@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { createSession, destroySession, endSupportSession, hashPassword, verifyPassword } from "@/lib/auth";
 import { RESERVED_SLUGS, slugify } from "@/lib/slug";
 import { TRIAL_DAYS } from "@/lib/subscription";
-import { signupDefaultsFor } from "@/lib/niche";
+import { BOOKING_STARTER_SERVICES, signupDefaultsFor } from "@/lib/niche";
 import { TABLE_SIGNUP, tableSignupDefaults } from "@/lib/tables";
 import { randomBytes } from "node:crypto";
 
@@ -17,7 +17,7 @@ const signupSchema = z.object({
   name: z.string().trim().min(2, "Informe seu nome."),
   email: z.string().trim().toLowerCase().email("E-mail inválido."),
   password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres."),
-  businessType: z.enum(["FOOD", "RETAIL", "PREORDER"]).default("FOOD"),
+  businessType: z.enum(["FOOD", "RETAIL", "PREORDER", "BOOKING"]).default("FOOD"),
 });
 
 async function uniqueSlug(base: string) {
@@ -62,6 +62,20 @@ export async function signup(_: FormState, formData: FormData): Promise<FormStat
       },
     },
   });
+
+  // Barbearia/salão: já nasce com o dono como primeiro profissional e três serviços de exemplo,
+  // para a agenda funcionar no primeiro minuto (preço e tempo são ajustados depois).
+  if (businessType === "BOOKING" && user.storeId) {
+    const storeId = user.storeId;
+    await db.professional.create({ data: { storeId, name, position: 0, breakStart: "12:00", breakEnd: "13:00" } });
+    const categories = await db.category.findMany({ where: { storeId } });
+    await db.product.createMany({
+      data: BOOKING_STARTER_SERVICES.map((s, i) => ({
+        storeId, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, position: i,
+        categoryId: categories.find((c) => c.name === s.category)?.id ?? null,
+      })),
+    });
+  }
 
   await createSession(user.id);
   redirect("/painel");

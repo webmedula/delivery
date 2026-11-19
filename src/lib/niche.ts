@@ -15,14 +15,15 @@ export const NICHES: NicheInfo[] = [
   { value: "FOOD", param: "delivery", title: "Restaurante e delivery", examples: "Lanchonete, pizzaria, açaí, marmitas" },
   { value: "RETAIL", param: "loja", title: "Loja de roupas e acessórios", examples: "Moda, calçados, bolsas, bijuterias" },
   { value: "PREORDER", param: "encomendas", title: "Encomendas", examples: "Bolos, doces, salgados para festa, marmitas da semana" },
+  { value: "BOOKING", param: "barbearia", title: "Barbearia e salão", examples: "Agendamento de horários com cada profissional" },
 ];
 
 /** Próximos nichos, mostrados como "em breve" no cadastro. */
-export const UPCOMING_NICHES = [
-  { title: "Barbearia e salão", examples: "Agendamento de horários" },
-];
+export const UPCOMING_NICHES: { title: string; examples: string }[] = [];
 
 export function nicheFromParam(param: string | null | undefined): BusinessType | null {
+  // "salao" e "agendamento" também levam ao tipo de agendamento.
+  if (param === "salao" || param === "agendamento") return "BOOKING";
   return NICHES.find((n) => n.param === param || n.value === param)?.value ?? null;
 }
 
@@ -36,14 +37,17 @@ type StoreForModules = { businessType: BusinessType; acceptsDelivery: boolean; a
 export function modulesFor(store: StoreForModules) {
   const retail = store.businessType === "RETAIL";
   const preorder = store.businessType === "PREORDER";
+  const booking = store.businessType === "BOOKING";
   return {
+    /** Agenda de horários com profissionais (barbearia, salão). Substitui o quadro de pedidos. */
+    booking,
     /** Encomendas com dia e horário marcados, antecedência mínima e sinal. */
     preorder,
     /** Entregadores e bairros: só para quem entrega. */
-    couriers: store.acceptsDelivery,
-    deliveryZones: store.acceptsDelivery,
+    couriers: store.acceptsDelivery && !booking,
+    deliveryZones: store.acceptsDelivery && !booking,
     /** Tempo estimado de preparo/entrega mostrado ao cliente. */
-    eta: !retail && !preorder,
+    eta: !retail && !preorder && !booking,
     /** Cor e tamanho com estoque por variação. */
     variants: retail,
     /** Tela de estoque no painel. */
@@ -51,9 +55,9 @@ export function modulesFor(store: StoreForModules) {
     /** Catálogo em grade com fotos grandes (vitrine), em vez da lista do cardápio. */
     gridCatalog: retail,
     /** Envio pelos Correios/transportadora com tabela de frete. */
-    shipping: retail || !!store.acceptsShipping,
+    shipping: !booking && (retail || !!store.acceptsShipping),
     /** Pedido na mesa por QR code: bares, lanchonetes, pizzarias e restaurantes. */
-    tables: !retail,
+    tables: !retail && !booking,
   };
 }
 
@@ -107,6 +111,18 @@ const TERMS: Record<BusinessType, Terms> = {
     productExample: "Preço, ex.: 120,00",
     poweredBy: "Encomendas online por",
   },
+  BOOKING: {
+    catalog: "Serviços",
+    catalogLower: "agenda",
+    preparing: "Em atendimento",
+    acceptAction: "Confirmar horário",
+    startAction: "Começar atendimento",
+    preparingMessage: "está confirmado",
+    emptyCatalog: "Os serviços ainda estão sendo cadastrados.",
+    categoryPlaceholder: "Ex.: Cabelo",
+    productExample: "Preço, ex.: 45,00",
+    poweredBy: "Agendamento online por",
+  },
 };
 
 export function termsFor(type: BusinessType = "FOOD"): Terms {
@@ -130,11 +146,17 @@ export function orderStatusLabelsFor(type: BusinessType = "FOOD"): Record<OrderS
       PENDING: "Recebida", CONFIRMED: "Confirmada", PREPARING: "Em produção", OUT_FOR_DELIVERY: "Saiu para entrega",
       READY_FOR_PICKUP: "Pronta para retirar", COMPLETED: "Concluída", CANCELED: "Cancelada",
     };
+  if (type === "BOOKING")
+    return {
+      PENDING: "Agendado", CONFIRMED: "Confirmado", PREPARING: "Em atendimento", OUT_FOR_DELIVERY: "Em atendimento",
+      READY_FOR_PICKUP: "Em atendimento", COMPLETED: "Atendido", CANCELED: "Cancelado",
+    };
   return { ...BASE_STATUS_LABEL, PREPARING: termsFor(type).preparing };
 }
 
 /** Nome da etapa considerando como o pedido chega ("Enviado" no lugar de "Saiu para entrega" no envio). */
 export function orderStatusText(status: OrderStatus, fulfillment: string, type: BusinessType = "FOOD") {
+  if (fulfillment === "APPOINTMENT") return orderStatusLabelsFor("BOOKING")[status];
   if (fulfillment === "SHIPPING" && status === "OUT_FOR_DELIVERY") return "Enviado";
   if (fulfillment === "SHIPPING" && status === "COMPLETED") return "Entregue";
   if (fulfillment === "TABLE" && status === "READY_FOR_PICKUP") return "Pronto, indo para a mesa";
@@ -154,8 +176,20 @@ export function signupDefaultsFor(type: BusinessType) {
       store: { businessType: type, acceptsDelivery: false, acceptsPickup: true, preorderMinHours: 48, depositPercent: 50 },
       categories: ["Bolos", "Doces", "Salgados", "Kits festa"],
     };
+  if (type === "BOOKING")
+    return {
+      store: { businessType: type, acceptsDelivery: false, acceptsPickup: true },
+      categories: ["Cabelo", "Barba", "Combos"],
+    };
   return { store: { businessType: type }, categories: [] as string[] };
 }
+
+/** Serviços que a barbearia já ganha no cadastro (o dono ajusta preço e tempo depois). */
+export const BOOKING_STARTER_SERVICES: { category: string; name: string; description: string; priceCents: number; durationMinutes: number }[] = [
+  { category: "Cabelo", name: "Corte de cabelo", description: "Máquina e tesoura, com acabamento.", priceCents: 4000, durationMinutes: 30 },
+  { category: "Barba", name: "Barba", description: "Barba desenhada com toalha quente.", priceCents: 3000, durationMinutes: 30 },
+  { category: "Combos", name: "Corte + barba", description: "O combo completo.", priceCents: 6500, durationMinutes: 60 },
+];
 
 /** Grade de tamanhos mais comuns, para sugerir no cadastro do produto. */
 export const SIZE_PRESETS = [

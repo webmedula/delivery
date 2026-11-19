@@ -18,16 +18,17 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
   const terms = termsFor(store.businessType);
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <Link href="/painel/cardapio" className="text-sm text-brand-700 hover:underline">‹ Voltar ao {terms.catalogLower}</Link>
+      <Link href="/painel/cardapio" className="text-sm text-brand-700 hover:underline">‹ Voltar {modulesFor(store).booking ? "aos serviços" : `ao ${terms.catalogLower}`}</Link>
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">Editar produto</h1>
-        <a href={`/loja/${store.slug}/produto/${product.id}`} target="_blank" className="btn-ghost text-sm">Ver no {terms.catalogLower}</a>
+        <h1 className="text-xl font-semibold">{modulesFor(store).booking ? "Editar serviço" : "Editar produto"}</h1>
+        {!modulesFor(store).booking && <a href={`/loja/${store.slug}/produto/${product.id}`} target="_blank" className="btn-ghost text-sm">Ver no {terms.catalogLower}</a>}
       </div>
       <section className="card">
         <ProductForm
           categories={categories.map((c) => ({ id: c.id, name: c.name }))}
           variants={modulesFor(store).variants}
           examplePrice={terms.productExample}
+          service={modulesFor(store).booking}
           product={{
             id: product.id,
             name: product.name,
@@ -38,6 +39,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
             imageUrl: product.imageUrl,
             images: product.images,
             stock: product.stock,
+            durationMinutes: product.durationMinutes,
             variants: product.variants.map((v) => ({ id: v.id, color: v.color, size: v.size, stock: v.stock, priceCents: v.priceCents, active: v.active })),
           }}
         />
