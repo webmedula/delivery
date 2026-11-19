@@ -3,6 +3,7 @@
 import type { FulfillmentType, PaymentMethod, PaymentStatus } from "@prisma/client";
 import { formatBRL } from "./money";
 import { paymentLabel } from "./order-status";
+import { formatSchedule } from "./preorder";
 
 type SummaryOrder = {
   number: number;
@@ -21,14 +22,18 @@ type SummaryOrder = {
   notes: string | null;
   customerName: string;
   items: { quantity: number; name: string; unitPriceCents: number }[];
+  scheduledFor?: Date | null;
+  depositCents?: number | null;
 };
 
 export function orderSummaryMessage(order: SummaryOrder, opts: { trackingUrl?: string; catalogWord?: string } = {}) {
   const combine = order.paymentMethod === "WHATSAPP";
+  const kind = order.scheduledFor ? "a encomenda" : "o pedido";
   const lines = [
     combine
-      ? `Olá! Sou ${order.customerName.trim().split(/\s+/)[0] || "cliente"} e quero fechar o pedido #${order.number} que montei no ${opts.catalogWord ?? "cardápio"}:`
-      : `Olá! Acabei de fazer o pedido #${order.number} pelo ${opts.catalogWord ?? "cardápio"}.`,
+      ? `Olá! Sou ${order.customerName.trim().split(/\s+/)[0] || "cliente"} e quero fechar ${kind} #${order.number} que montei no ${opts.catalogWord ?? "cardápio"}:`
+      : `Olá! Acabei de fazer ${kind} #${order.number} pelo ${opts.catalogWord ?? "cardápio"}.`,
+    ...(order.scheduledFor ? [`Para: ${formatSchedule(order.scheduledFor)}`] : []),
     "",
     ...order.items.map((i) => `${i.quantity}x ${i.name} · ${formatBRL(i.unitPriceCents * i.quantity)}`),
     ...(order.discountCents > 0
@@ -41,6 +46,7 @@ export function orderSummaryMessage(order: SummaryOrder, opts: { trackingUrl?: s
     combine
       ? `Total: ${formatBRL(order.totalCents)}`
       : `Total: ${formatBRL(order.totalCents)} (${paymentLabel[order.paymentMethod]}${order.paymentStatus === "PAID" ? ", já pago" : ""})`,
+    ...(order.depositCents ? [`Sinal para confirmar: ${formatBRL(order.depositCents)} (restante ${formatBRL(order.totalCents - order.depositCents)} na ${order.fulfillment === "DELIVERY" ? "entrega" : "retirada"})`] : []),
     order.fulfillment === "DELIVERY"
       ? `Entregar em: ${order.address}${order.deliveryZoneName ? ` (${order.deliveryZoneName})` : ""}`
       : order.fulfillment === "SHIPPING"
@@ -49,7 +55,7 @@ export function orderSummaryMessage(order: SummaryOrder, opts: { trackingUrl?: s
           ? `Estou na ${order.tableLabel ?? "mesa"}.`
           : "Vou retirar na loja.",
     ...(order.notes ? [`Obs.: ${order.notes}`] : []),
-    ...(combine ? ["", "Como faço o pagamento?"] : []),
+    ...(combine ? ["", order.depositCents ? "Como faço o pagamento do sinal?" : "Como faço o pagamento?"] : []),
     ...(opts.trackingUrl ? ["", `Pedido: ${opts.trackingUrl}`] : []),
   ];
   return lines.join("\n").replace(/ /g, " ");

@@ -10,6 +10,7 @@ import { guessZone } from "@/lib/delivery";
 import { InstallInvite } from "@/components/InstallApp";
 import { colorSwatch } from "@/lib/variants";
 import { REGIONS, type ShippingMethodRow } from "@/lib/shipping";
+import { depositFor } from "@/lib/preorder";
 import { ShippingFields, emptyShipping, quoteShippingForm, type ShippingConfig, type ShippingForm } from "@/components/ShippingFields";
 
 type Variant = { id: string; color: string | null; size: string | null; stock: number | null; priceCents: number | null };
@@ -43,6 +44,8 @@ type StoreInfo = {
   whatsappCheckout?: boolean;
   /** Envio pelos Correios/transportadora com a tabela de frete da loja (null = não envia). */
   shipping?: ShippingConfig | null;
+  /** Encomendas: dias e horários livres, antecedência e sinal (null = pedido para agora). */
+  preorder?: { days: { date: string; label: string; times: string[] }[]; minHours: string; depositPercent: number; depositNote: string | null } | null;
   /** Textos do tipo de loja. */
   terms?: { catalog: string; catalogLower: string; emptyCatalog: string; poweredBy: string };
 };
@@ -88,6 +91,10 @@ export function Storefront({ store, sections, customer, initialProductId, table 
   const [shipForm, setShipForm] = useState<ShippingForm>(emptyShipping);
   const shipKey = `envio:${store.slug}`;
   // Com Pix online ligado, ele substitui o Pix pela chave (que exige conferência manual).
+  const pre = store.preorder ?? null;
+  // Encomenda com sinal: o sinal é pago antes (online ou pela chave Pix), então não dá para pagar só na porta.
+  const signal = !!pre && pre.depositPercent > 0 && pre.depositPercent < 100;
+  const upfront = !!pre && pre.depositPercent > 0;
   const paymentOptions: { value: Payment; label: string }[] = table ? [
     // Na mesa: entra na conta e paga no fim, ou paga agora pelo celular (se a loja ligou o pagamento online).
     { value: "TAB" as const, label: "Pagar no final, na conta da mesa" },
@@ -95,10 +102,12 @@ export function Storefront({ store, sections, customer, initialProductId, table 
     ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: "Cartão de crédito agora" }] : []),
   ] : [
     ...(store.whatsappCheckout ? [{ value: "WHATSAPP" as const, label: "Combinar pelo WhatsApp" }] : []),
-    ...(store.online.pix ? [{ value: "ONLINE_PIX" as const, label: "Pix (pague agora)" }] : [{ value: "PIX" as const, label: "Pix" }]),
-    ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: "Cartão de crédito (pague agora)" }] : []),
+    ...(store.online.pix
+      ? [{ value: "ONLINE_PIX" as const, label: signal ? "Pix: pague o sinal agora" : "Pix (pague agora)" }]
+      : [{ value: "PIX" as const, label: signal ? "Pix: sinal pela chave da loja" : "Pix" }]),
+    ...(store.online.card ? [{ value: "ONLINE_CARD" as const, label: signal ? "Cartão de crédito: pague o sinal agora" : "Cartão de crédito (pague agora)" }] : []),
     // Pedido enviado pelo correio não tem como pagar na porta.
-    ...(fulfillment === "SHIPPING"
+    ...(fulfillment === "SHIPPING" || upfront
       ? []
       : [
           { value: "CASH" as const, label: "Dinheiro" },
@@ -122,6 +131,10 @@ export function Storefront({ store, sections, customer, initialProductId, table 
   const [phone, setPhone] = useState(customer?.phone ?? "");
   const [checkingCoupon, startCouponCheck] = useTransition();
   const [openProductId, setOpenProductId] = useState<string | null>(initialProductId ?? null);
+  const [scheduleDate, setScheduleDate] = useState<string>("");
+  const [scheduleTime, setScheduleTime] = useState<string>("");
+  const scheduleDay = pre?.days.find((d) => d.date === scheduleDate);
+  const scheduleReady = !pre || (!!scheduleDay && scheduleDay.times.includes(scheduleTime));
 
   useEffect(() => {
     try {
@@ -174,6 +187,8 @@ export function Storefront({ store, sections, customer, initialProductId, table 
   const discount = rewardActive ? rewardCents(subtotal, store.reward) : coupon ? Math.min(subtotal, coupon.discountCents) : 0;
 
   // Se a sacola mudar depois de aplicar o cupom, peça para aplicar de novo.
+  const totalToPay = subtotal - discount + fee;
+  const depositPreview = pre ? depositFor(totalToPay, pre.depositPercent) : null;
   const subtotalKey = subtotal;
   useEffect(() => { setCoupon(null); }, [subtotalKey]);
 
@@ -214,6 +229,7 @@ export function Storefront({ store, sections, customer, initialProductId, table 
         useReward: rewardActive,
         couponCode: !rewardActive && coupon && !table ? coupon.code : undefined,
         marketingOptIn: form.get("marketingOptIn") === "on",
+        schedule: pre ? { date: scheduleDate, time: scheduleTime } : undefined,
       });
       if (!result.ok) return setError(result.error);
       setCart({});
@@ -227,6 +243,8 @@ export function Storefront({ store, sections, customer, initialProductId, table 
   const chips = table ? [
     store.eta.pickup && { icon: <IconBag />, text: `Fica pronto em ${store.eta.pickup}` },
   ].filter(Boolean) as { icon: React.ReactNode; text: string }[] : [
+    pre && { icon: <IconCalendar />, text: `Encomendas com ${pre.minHours} de antecedência` },
+    pre?.depositNote && { icon: <IconReceipt />, text: pre.depositNote },
     store.acceptsDelivery && {
       icon: <IconBike />,
       text: `Entrega ${deliveryFeeText(store)}${store.eta.delivery ? ` · ${store.eta.delivery}` : ""}`,
@@ -299,7 +317,7 @@ export function Storefront({ store, sections, customer, initialProductId, table 
                 {store.accepting && <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60 motion-safe:animate-ping" />}
                 <span className={`relative inline-flex h-2 w-2 rounded-full ${store.accepting ? "bg-emerald-500" : "bg-stone-400"}`} />
               </span>
-              {store.accepting ? "Aberto agora" : "Fechado no momento"}
+              {store.accepting ? (pre ? "Aceitando encomendas" : "Aberto agora") : pre ? "Encomendas pausadas" : "Fechado no momento"}
             </span>
             {chips.map((c) => (
               <span key={c.text} className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-2.5 py-1 font-medium text-stone-700">
@@ -455,6 +473,55 @@ export function Storefront({ store, sections, customer, initialProductId, table 
               )}
             </div>}
             {fulfillment === "PICKUP" && store.address && <p className="text-sm text-stone-600">Retirada em: {store.address}</p>}
+            {pre && (
+              <fieldset className="space-y-2 rounded-xl bg-brand-50/60 p-3 ring-1 ring-brand-100">
+                <legend className="sr-only">Dia e horário</legend>
+                <p className="text-sm font-semibold text-stone-900">
+                  {fulfillment === "DELIVERY" ? "Para quando é a entrega?" : "Quando você vem buscar?"}
+                </p>
+                {pre.days.length === 0 ? (
+                  <p className="text-sm text-stone-600">A agenda está cheia no momento. Fale com a loja pelo WhatsApp.</p>
+                ) : (
+                  <>
+                    <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+                      {pre.days.map((d) => {
+                        const [wd, dm] = d.label.split(", ");
+                        const active = d.date === scheduleDate;
+                        return (
+                          <button
+                            key={d.date}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => { setScheduleDate(d.date); if (!d.times.includes(scheduleTime)) setScheduleTime(""); }}
+                            className={`flex w-14 flex-none flex-col items-center rounded-xl py-2 text-center transition ${active ? "bg-brand-600 text-white shadow-md shadow-brand-700/20" : "bg-white text-stone-700 ring-1 ring-stone-200 hover:ring-brand-300"}`}
+                          >
+                            <span className={`text-[11px] font-semibold uppercase ${active ? "text-white/85" : "text-stone-500"}`}>{wd}</span>
+                            <span className="text-[15px] font-bold tabular-nums">{dm}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {scheduleDay ? (
+                      <div className="flex flex-wrap gap-2">
+                        {scheduleDay.times.map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            aria-pressed={t === scheduleTime}
+                            onClick={() => setScheduleTime(t)}
+                            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold tabular-nums transition ${t === scheduleTime ? "bg-brand-600 text-white" : "bg-white text-stone-700 ring-1 ring-stone-200 hover:ring-brand-300"}`}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-stone-500">Escolha o dia. Encomendas com pelo menos {pre.minHours} de antecedência.</p>
+                    )}
+                  </>
+                )}
+              </fieldset>
+            )}
             {payment === "WHATSAPP" && (
               <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
                 Ao enviar, abrimos o WhatsApp da loja com o seu pedido pronto. Vocês combinam o pagamento{fulfillment === "DELIVERY" ? " e a entrega" : ""} por lá.
@@ -592,16 +659,29 @@ export function Storefront({ store, sections, customer, initialProductId, table 
                   <span>{rewardActive ? "Recompensa de fidelidade" : `Cupom ${coupon?.code}`}</span><span>−{formatBRL(discount)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-base font-semibold"><span>Total</span><span>{formatBRL(subtotal - discount + fee)}</span></div>
+              <div className="flex justify-between text-base font-semibold"><span>Total</span><span>{formatBRL(totalToPay)}</span></div>
+              {depositPreview && payment !== "WHATSAPP" && (
+                <div className="mt-1 space-y-0.5 rounded-lg bg-brand-50 px-3 py-2 text-brand-800">
+                  <div className="flex justify-between font-semibold"><span>Sinal para confirmar ({pre!.depositPercent}%)</span><span>{formatBRL(depositPreview)}</span></div>
+                  <div className="flex justify-between text-[13px]"><span>Restante na {fulfillment === "DELIVERY" ? "entrega" : "retirada"}</span><span>{formatBRL(totalToPay - depositPreview)}</span></div>
+                </div>
+              )}
+              {depositPreview && payment === "WHATSAPP" && (
+                <p className="text-[13px] text-stone-600">A loja pede um sinal de {formatBRL(depositPreview)} para confirmar. Vocês combinam o pagamento no WhatsApp.</p>
+              )}
               {!table && subtotal < store.minOrderCents && <p className="text-red-600">Pedido mínimo: {formatBRL(store.minOrderCents)}</p>}
               {payment === "TAB" && <p className="text-xs text-stone-500">Nada a pagar agora: o valor entra na conta da {table?.label ?? "mesa"}.</p>}
             </div>
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <button
               className={`btn w-full py-3 text-base ${payment === "WHATSAPP" ? "bg-[#1f9d55]! hover:bg-[#188a49]!" : ""}`}
-              disabled={pending || lines.length === 0 || (!table && subtotal < store.minOrderCents) || (fulfillment === "SHIPPING" && !shipQuote.selected)}
+              disabled={pending || lines.length === 0 || (!table && subtotal < store.minOrderCents) || (fulfillment === "SHIPPING" && !shipQuote.selected) || !scheduleReady}
             >
-              {pending ? "Enviando..." : payment === "WHATSAPP" ? "Enviar pedido pelo WhatsApp" : payOnline ? "Fazer pedido e pagar" : table ? `Pedir para a ${table.label}` : "Fazer pedido"}
+              {pending ? "Enviando..."
+                : pre && !scheduleReady ? "Escolha o dia e o horário"
+                : payment === "WHATSAPP" ? (pre ? "Enviar encomenda pelo WhatsApp" : "Enviar pedido pelo WhatsApp")
+                : pre ? (payOnline ? (depositPreview ? "Encomendar e pagar o sinal" : "Encomendar e pagar") : "Fazer encomenda")
+                : payOnline ? "Fazer pedido e pagar" : table ? `Pedir para a ${table.label}` : "Fazer pedido"}
             </button>
           </form>
         </div>
@@ -775,6 +855,13 @@ function IconReceipt() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" /><path d="M9 8h6M9 12h6" />
+    </svg>
+  );
+}
+function IconCalendar() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" />
     </svg>
   );
 }

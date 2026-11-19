@@ -144,7 +144,9 @@ export async function createOrderPayment(orderId: string, cpfCnpjInput: string):
   const cpfCnpj = normalizeCpfCnpj(cpfCnpjInput);
   if (!key) return fail("Esta loja não está recebendo pagamentos online agora.");
   if (!cpfCnpj) return fail("Informe um CPF válido para pagar online.");
-  if (order.totalCents < MIN_ONLINE_PAYMENT_CENTS) return fail("Pagamento online só a partir de R$ 5,00.");
+  // Encomenda com sinal: a cobrança online é só do sinal; o resto é pago na retirada.
+  const chargeCents = order.depositCents ?? order.totalCents;
+  if (chargeCents < MIN_ONLINE_PAYMENT_CENTS) return fail("Pagamento online só a partir de R$ 5,00.");
 
   try {
     // Cliente na subconta da loja (reaproveitado nos próximos pedidos).
@@ -167,9 +169,11 @@ export async function createOrderPayment(orderId: string, cpfCnpjInput: string):
     const base = {
       customer: asaasCustomerId,
       billingType: order.paymentMethod === "ONLINE_PIX" ? ("PIX" as const) : ("CREDIT_CARD" as const),
-      value: order.totalCents / 100,
+      value: chargeCents / 100,
       dueDate: isoDateInSaoPaulo(new Date()),
-      description: `Pedido #${order.number} - ${order.store.name}`,
+      description: order.depositCents
+        ? `Sinal da encomenda #${order.number} - ${order.store.name}`
+        : `${order.scheduledFor ? "Encomenda" : "Pedido"} #${order.number} - ${order.store.name}`,
       externalReference: order.id,
     };
     const successUrl = `${appUrl()}/loja/${order.store.slug}/pedido/${order.id}`;

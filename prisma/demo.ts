@@ -14,6 +14,7 @@
 
 import type { BusinessType, DiscountType, FulfillmentType, OrderStatus, PaymentMethod, Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { brDateOf, brDateTime, depositFor } from "../src/lib/preorder";
 
 export const DEMO_EMAIL_DOMAIN = "demo.webtenda.com.br";
 export const DEFAULT_DEMO_PASSWORD = "demo1234";
@@ -45,6 +46,8 @@ type DemoStore = {
   whatsappCheckout?: boolean;
   payments?: PaymentMethod[];
   notes?: (string | null)[];
+  /** Encomendas (tipo PREORDER): regras da agenda e sinal. */
+  preorder?: { minHours: number; weekdays: number[]; times: string[]; dailyLimit: number | null; depositPercent: number };
   /** Pedido na mesa por QR code: quantas mesas e a fração do histórico feita na mesa. */
   tables?: { count: number; share: number };
   /** Envio pelos Correios: estado de origem, frete grátis e formas de envio (preços em centavos). */
@@ -73,6 +76,9 @@ const img = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format
 // Fotos de roupa em pé (3:4), para a vitrine em grade.
 const tall = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=600&h=800&q=70`;
 const LETTERS = ["P", "M", "G", "GG"];
+
+// Fotos quadradas para a confeitaria.
+const sq = img;
 
 export const DEMO_STORES: DemoStore[] = [
   {
@@ -347,6 +353,58 @@ export const DEMO_STORES: DemoStore[] = [
       ],
     },
   },
+  {
+    key: "doces",
+    color: "#92400e",
+    slug: "doce-encanto",
+    name: "Doce Encanto Confeitaria",
+    description: "Bolos, doces e salgados para festa feitos sob encomenda, e marmitas fit da semana. Escolha o dia e o horário de retirada.",
+    address: "Rua das Acácias, 77 - Jardim América",
+    deliveryFeeCents: 1200,
+    minOrderCents: 4000,
+    acceptsPickup: true,
+    acceptsDelivery: true,
+    businessType: "PREORDER",
+    whatsappCheckout: true,
+    preorder: { minHours: 48, weekdays: [2, 3, 4, 5, 6], times: ["09:00", "11:00", "14:00", "16:00", "18:00"], dailyLimit: 8, depositPercent: 50 },
+    payments: ["PIX", "PIX", "PIX", "WHATSAPP"],
+    notes: ["Escrever \"Feliz aniversário, Ana\" no bolo", "Festa de 30 pessoas", "Sem lactose, se possível", "Vela de número 5, por favor", null, null, null],
+    loyalty: { ordersRequired: 5, type: "PERCENT", value: 10, minOrderCents: 8000 },
+    coupons: [
+      { code: "PRIMEIRAFESTA", type: "PERCENT", value: 10, firstOrderOnly: true },
+      { code: "KITFESTA15", type: "FIXED", value: 1500, minOrderCents: 25000, expiresInDays: 25 },
+    ],
+    campaign: { name: "Festas de fim de ano", message: "Oi {nome}! A agenda de festas da {loja} está abrindo. Garanta seu bolo com R$ 15 off acima de R$ 250 usando {cupom}: {link}", coupon: "KITFESTA15" },
+    orders: 34,
+    itemsPerOrder: [1, 3],
+    hours: [9, 18],
+    menu: {
+      Bolos: [
+        ["Bolo de Chocolate com Brigadeiro", "Massa de chocolate, recheio e cobertura de brigadeiro. 1,5 kg, serve 15 pessoas.", 12990, sq("1606890737304-57a1ca8a5b62")],
+        ["Bolo Red Velvet", "Massa aveludada com recheio de cream cheese e frutas vermelhas. 1,5 kg.", 14990, sq("1779885580435-949062b1abb3")],
+        ["Naked Cake de Frutas Vermelhas", "Massa de baunilha, creme de ninho e frutas frescas. 2 kg, serve 20 pessoas.", 16990, sq("1557925923-33b27f891f88")],
+        ["Bolo de Morango com Chantilly", "Pão de ló, morangos frescos e chantilly. 1,5 kg.", 13990, sq("1568827999250-3f6afff96e66")],
+        ["Bolo de Cenoura com Chocolate", "O clássico caseiro com calda de chocolate. 1 kg.", 7990, sq("1773933200726-458f8c64ac29")],
+      ],
+      Doces: [
+        ["Cento de Brigadeiro Gourmet", "100 brigadeiros de chocolate belga, nas forminhas.", 15990, sq("1783286943732-3aad8d4d273c")],
+        ["Cento de Docinhos Sortidos", "Beijinho, cajuzinho, brigadeiro branco e de churros. 100 unidades.", 14990, sq("1787788629722-02cf905bb188")],
+        ["Bem-casado (10 unidades)", "Pão de ló com doce de leite, embalado para lembrancinha.", 4500, sq("1765946025035-ee05aaad2250")],
+        ["Caixa de Trufas (12 unidades)", "Trufas recheadas de maracujá, ninho e chocolate.", 5490, sq("1763700667398-24ae7f2289fc")],
+        ["Cupcakes Decorados (6 unidades)", "Cobertura de buttercream nas cores da sua festa.", 4800, sq("1778904912387-f9d856a8526a")],
+        ["Torta de Limão", "Massa amanteigada, creme de limão e merengue maçaricado. Serve 12 pessoas.", 8990, sq("1765992314341-48ba688f8d49")],
+        ["Brownie (caixa com 6)", "Brownie de chocolate meio amargo, casquinha crocante.", 4200, sq("1777647364657-2319b02095de")],
+      ],
+      Salgados: [
+        ["Cento de Quibe", "Quibe frito na hora da retirada. 100 unidades.", 8990, sq("1786174044931-d395bf77e58e")],
+        ["Tábua de Petiscos para Festa", "Frios, castanhas, frutas secas e torradas. Serve 15 pessoas.", 18990, sq("1771626717980-0049820ed4e1")],
+      ],
+      "Marmitas da semana": [
+        ["Kit 5 Marmitas Fit", "Arroz integral, legumes e proteína. Cardápio da semana enviado no WhatsApp.", 10990, sq("1543352632-5a4b24e4d2a6")],
+        ["Kit 10 Marmitas Fit", "Duas semanas de almoço resolvido. Congela bem.", 19990, sq("1606859191214-25806e8e2423")],
+      ],
+    },
+  },
 ];
 
 // Clientes fictícios. Telefones com DDD 00 (não existe): links de WhatsApp não chegam a ninguém.
@@ -440,6 +498,15 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       businessType: demo.businessType ?? "FOOD",
       whatsappCheckout: demo.whatsappCheckout ?? false,
       acceptsShipping: !!demo.shipping,
+      ...(demo.preorder
+        ? {
+            preorderMinHours: demo.preorder.minHours,
+            preorderWeekdays: demo.preorder.weekdays,
+            preorderTimes: demo.preorder.times,
+            preorderDailyLimit: demo.preorder.dailyLimit,
+            depositPercent: demo.preorder.depositPercent,
+          }
+        : {}),
       shippingOriginUf: demo.shipping?.originUf ?? null,
       shippingFreeAboveCents: demo.shipping?.freeAboveCents ?? null,
       planId,
@@ -556,7 +623,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   };
 
   // Pedidos: histórico dos últimos 30 dias + alguns em andamento agora.
-  type Draft = { at: Date; customer: (typeof customers)[number]; status: OrderStatus; table?: number; liveBill?: boolean };
+  type Draft = { at: Date; customer: (typeof customers)[number]; status: OrderStatus; table?: number; liveBill?: boolean; scheduledFor?: Date };
   const drafts: Draft[] = [];
   const [fromHour, toHour] = demo.hours;
   for (let i = 0; i < demo.orders; i++) {
@@ -580,22 +647,62 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       drafts.push({ at, customer, status: "COMPLETED" });
     }
   }
-  // Loja sem entrega (bar com mesas): nada "saiu para entrega".
-  const live: OrderStatus[] = demo.acceptsDelivery === false
-    ? ["PREPARING", "READY_FOR_PICKUP"]
-    : ["PENDING", "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP"];
-  live.forEach((status, i) => {
-    drafts.push({ at: new Date(now.getTime() - (5 + i * 9) * 60_000), customer: customers[2 + ((i * 2) % (customers.length - 3))], status });
-  });
-  // Mesas ocupadas agora: contas abertas com pedidos em várias etapas.
-  if (demo.tables) {
-    const liveTables: [table: number, status: OrderStatus, minutesAgo: number][] = [
-      [3, "COMPLETED", 58], [3, "COMPLETED", 34], [5, "COMPLETED", 27], [5, "PREPARING", 9], [5, "PENDING", 2],
-      [8, "COMPLETED", 31], [8, "READY_FOR_PICKUP", 6], [1, "PENDING", 4], [11, "PREPARING", 13],
+  const pre = demo.preorder;
+  if (pre) {
+    // Encomendas: o histórico foi retirado no dia marcado (a data sorteada vira a da retirada,
+    // e o pedido foi feito alguns dias antes). As em andamento ficam espalhadas na agenda.
+    for (const d of drafts) {
+      let at = brDateTime(brDateOf(d.at), pick(pre.times));
+      if (at.getTime() > now.getTime() - 2 * 60 * 60_000) at = new Date(at.getTime() - DAY);
+      while (!pre.weekdays.includes(new Date(at.getTime() - 3 * 60 * 60_000).getUTCDay())) at = new Date(at.getTime() - DAY);
+      d.scheduledFor = at;
+      d.at = new Date(at.getTime() - between(2, 6) * DAY - between(1, 10) * 60 * 60_000);
+    }
+    const today = brDateOf(now);
+    const openDays: string[] = [];
+    for (let i = 1; openDays.length < 8; i++) {
+      const date = brDateOf(new Date(now.getTime() + i * DAY));
+      if (pre.weekdays.includes(new Date(`${date}T12:00:00Z`).getUTCDay())) openDays.push(date);
+    }
+    const laterToday = pre.times.find((t) => brDateTime(today, t).getTime() > now.getTime() + 60 * 60_000) ?? pre.times[pre.times.length - 1];
+    const live: [OrderStatus, string, string, number][] = [
+      // [etapa, dia, horário, horas desde o pedido]
+      ["PENDING", openDays[2], pre.times[1], 0.3],
+      ["PENDING", openDays[4], pre.times[3], 1.5],
+      ["CONFIRMED", openDays[0], pre.times[2], 30],
+      ["CONFIRMED", openDays[1], pre.times[0], 26],
+      ["CONFIRMED", openDays[1], pre.times[4], 50],
+      ["CONFIRMED", openDays[3], pre.times[2], 20],
+      ["CONFIRMED", openDays[6], pre.times[1], 8],
+      ["PREPARING", today, laterToday, 72],
+      ["READY_FOR_PICKUP", today, pre.times[0], 96],
     ];
-    liveTables.forEach(([table, status, ago], i) =>
-      drafts.push({ at: new Date(now.getTime() - ago * 60_000), customer: customers[3 + (i % (customers.length - 4))], status, table, liveBill: true }),
-    );
+    live.forEach(([status, date, time, hoursAgo], i) => {
+      drafts.push({
+        at: new Date(now.getTime() - hoursAgo * 60 * 60_000),
+        customer: customers[2 + ((i * 2) % (customers.length - 3))],
+        status,
+        scheduledFor: brDateTime(date, time),
+      });
+    });
+  } else {
+    // Loja sem entrega (bar com mesas): nada "saiu para entrega".
+    const live: OrderStatus[] = demo.acceptsDelivery === false
+      ? ["PREPARING", "READY_FOR_PICKUP"]
+      : ["PENDING", "PENDING", "CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP"];
+    live.forEach((status, i) => {
+      drafts.push({ at: new Date(now.getTime() - (5 + i * 9) * 60_000), customer: customers[2 + ((i * 2) % (customers.length - 3))], status });
+    });
+    // Mesas ocupadas agora: contas abertas com pedidos em várias etapas.
+    if (demo.tables) {
+      const liveTables: [table: number, status: OrderStatus, minutesAgo: number][] = [
+        [3, "COMPLETED", 58], [3, "COMPLETED", 34], [5, "COMPLETED", 27], [5, "PREPARING", 9], [5, "PENDING", 2],
+        [8, "COMPLETED", 31], [8, "READY_FOR_PICKUP", 6], [1, "PENDING", 4], [11, "PREPARING", 13],
+      ];
+      liveTables.forEach(([table, status, ago], i) =>
+        drafts.push({ at: new Date(now.getTime() - ago * 60_000), customer: customers[3 + (i % (customers.length - 4))], status, table, liveBill: true }),
+      );
+    }
   }
   drafts.sort((a, b) => a.at.getTime() - b.at.getTime());
 
@@ -681,6 +788,20 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     let paymentMethod: PaymentMethod = table ? "TAB" : pick(demo.payments ?? ["PIX", "PIX", "CARD_ON_DELIVERY", "CARD_ON_DELIVERY", "CASH"]);
     if (dest && (paymentMethod === "CASH" || paymentMethod === "CARD_ON_DELIVERY")) paymentMethod = "PIX";
     const total = subtotal + fee - discountCents;
+    // Encomenda: sinal pago (pela chave Pix, marcado pela loja), menos na mais recente.
+    const deposit = pre && paymentMethod !== "CASH" ? depositFor(total, pre.depositPercent) : null;
+    const preStamps = pre && d.scheduledFor
+      ? {
+          scheduledFor: d.scheduledFor,
+          depositCents: deposit,
+          depositPaidAt: deposit && !(d.status === "PENDING" && i === drafts.length - 1) && d.status !== "CANCELED" ? new Date(d.at.getTime() + 25 * 60_000) : null,
+          etaMinutesMin: null,
+          etaMinutesMax: null,
+          acceptedAt: d.status === "PENDING" || d.status === "CANCELED" ? null : new Date(d.at.getTime() + 40 * 60_000),
+          dispatchedAt: d.status === "OUT_FOR_DELIVERY" || d.status === "READY_FOR_PICKUP" || d.status === "COMPLETED" ? new Date(Math.min(d.scheduledFor.getTime() - 30 * 60_000, now.getTime() - 10 * 60_000)) : null,
+          completedAt: d.status === "COMPLETED" ? new Date(d.scheduledFor.getTime() + between(0, 40) * 60_000) : null,
+        }
+      : {};
     orders.push({
       id,
       storeId,
@@ -723,6 +844,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       totalCents: total,
       createdAt: d.at,
       updatedAt: d.at,
+      ...preStamps,
     });
   });
   await tx.order.createMany({ data: orders });

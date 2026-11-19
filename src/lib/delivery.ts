@@ -4,6 +4,7 @@ import type { BusinessType, FulfillmentType, OrderStatus } from "@prisma/client"
 import { formatBRL } from "./money";
 import { termsFor } from "./niche";
 import { CORREIOS_TRACKING_URL, formatDays, isCorreiosCode } from "./shipping";
+import { balanceDue, depositPaid, formatSchedule } from "./preorder";
 
 /** Colunas do quadro de pedidos do painel. */
 export const BOARD_COLUMNS = [
@@ -16,6 +17,8 @@ export const OPEN_STATUSES: OrderStatus[] = BOARD_COLUMNS.flatMap((c) => [...c.s
 
 /** Colunas do quadro com os nomes do tipo de loja ("Em preparo" no delivery, "Separando" na loja). */
 export function boardColumns(type: BusinessType = "FOOD") {
+  if (type === "PREORDER")
+    return BOARD_COLUMNS.map((c) => ({ ...c, title: c.key === "new" ? "Novas encomendas" : c.key === "preparing" ? "Confirmadas e em produção" : "Prontas / saiu" }));
   return BOARD_COLUMNS.map((c) => (c.key === "preparing" ? { ...c, title: termsFor(type).preparing } : c));
 }
 
@@ -24,7 +27,8 @@ export function nextStep(status: OrderStatus, fulfillment: FulfillmentType, type
   const t = termsFor(type);
   switch (status) {
     case "PENDING":
-      return { status: "PREPARING", label: t.acceptAction };
+      // Encomenda é para outro dia: confirma agora e começa a produção perto da data.
+      return { status: type === "PREORDER" ? "CONFIRMED" : "PREPARING", label: t.acceptAction };
     case "CONFIRMED":
       return { status: "PREPARING", label: t.startAction };
     case "PREPARING":
@@ -63,6 +67,16 @@ export function stampsFor(status: OrderStatus, current: Stamps, now = new Date()
 
 /** Etapas mostradas ao cliente na página do pedido. */
 export function trackingSteps(fulfillment: FulfillmentType, type: BusinessType = "FOOD") {
+  if (type === "PREORDER")
+    return [
+      { label: "Recebida", statuses: ["PENDING"] },
+      { label: "Confirmada", statuses: ["CONFIRMED"] },
+      { label: "Em produção", statuses: ["PREPARING"] },
+      fulfillment === "DELIVERY"
+        ? { label: "Saiu para entrega", statuses: ["OUT_FOR_DELIVERY"] }
+        : { label: "Pronta para retirar", statuses: ["READY_FOR_PICKUP"] },
+      { label: fulfillment === "PICKUP" ? "Retirada" : "Entregue", statuses: ["COMPLETED"] },
+    ] as { label: string; statuses: OrderStatus[] }[];
   return [
     { label: "Recebido", statuses: ["PENDING"] },
     { label: termsFor(type).preparing, statuses: ["CONFIRMED", "PREPARING"] },
@@ -78,8 +92,8 @@ export function trackingSteps(fulfillment: FulfillmentType, type: BusinessType =
 }
 
 /** Índice da etapa atual em trackingSteps (-1 se cancelado). */
-export function currentStepIndex(status: OrderStatus, fulfillment: FulfillmentType) {
-  return trackingSteps(fulfillment).findIndex((s) => s.statuses.includes(status));
+export function currentStepIndex(status: OrderStatus, fulfillment: FulfillmentType, type: BusinessType = "FOOD") {
+  return trackingSteps(fulfillment, type).findIndex((s) => s.statuses.includes(status));
 }
 
 export type EtaRules = {
@@ -172,7 +186,36 @@ type MessageOrder = {
   shippingDaysMin?: number | null;
   shippingDaysMax?: number | null;
   trackingCode?: string | null;
+  scheduledFor?: Date | null;
+  depositCents?: number | null;
+  depositPaidAt?: Date | null;
 };
+
+/** Mensagem da encomenda (dia marcado e sinal). */
+function preorderMessage(order: MessageOrder & { scheduledFor: Date }, hi: string, storeName: string, storeAddress?: string | null) {
+  const ref = `sua encomenda #${order.number} da ${storeName}`;
+  const when = formatSchedule(order.scheduledFor);
+  const money = { totalCents: order.totalCents, depositCents: order.depositCents ?? null, depositPaidAt: order.depositPaidAt ?? null, paymentStatus: order.paymentStatus };
+  const due = balanceDue(money);
+  const signalMissing = !!order.depositCents && !depositPaid(money);
+  const pay = due > 0 ? ` Valor a pagar ${order.fulfillment === "DELIVERY" ? "na entrega" : "na retirada"}: ${formatBRL(due)}.` : " Já está tudo pago.";
+  switch (order.status) {
+    case "PENDING":
+      return `${hi} Recebemos ${ref} para ${when}.${signalMissing ? ` Para confirmar, falta o sinal de ${formatBRL(order.depositCents!)}.` : ""}`;
+    case "CONFIRMED":
+      return `${hi} ${cap(ref)} está confirmada para ${when}.${signalMissing ? ` Lembrando que falta o sinal de ${formatBRL(order.depositCents!)}.` : ""}`;
+    case "PREPARING":
+      return `${hi} ${cap(ref)} já está em produção para ${when}.`;
+    case "OUT_FOR_DELIVERY":
+      return `${hi} ${cap(ref)} saiu para entrega${order.courierName ? ` com ${order.courierName.trim().split(/\s+/)[0]}` : ""} e logo chega aí.${pay}`;
+    case "READY_FOR_PICKUP":
+      return `${hi} ${cap(ref)} está pronta para retirar${storeAddress ? ` em ${storeAddress}` : ""}.${pay}`;
+    case "COMPLETED":
+      return `${hi} ${cap(ref)} foi ${order.fulfillment === "PICKUP" ? "retirada" : "entregue"}. Obrigado pela preferência, bom apetite!`;
+    case "CANCELED":
+      return `${hi} Infelizmente ${ref} foi cancelada. Se quiser, fale com a gente por aqui.`;
+  }
+}
 
 /** Mensagem pronta de WhatsApp para a loja avisar o cliente sobre a etapa atual do pedido. */
 export function customerMessage(order: MessageOrder, storeName: string, trackingUrl: string, storeAddress?: string | null, type: BusinessType = "FOOD") {
@@ -186,8 +229,9 @@ export function customerMessage(order: MessageOrder, storeName: string, tracking
         ? ` Valor: ${formatBRL(order.totalCents)}${order.changeForCents ? ` (troco para ${formatBRL(order.changeForCents)})` : ""}.`
         : ` Valor: ${formatBRL(order.totalCents)}.`;
   const eta = order.etaMinutesMin ? ` Previsão: entre ${formatEta(order.createdAt, order.etaMinutesMin, order.etaMinutesMax)}.` : "";
-  let body: string;
-  switch (order.status) {
+  let body = "";
+  if (type === "PREORDER" && order.scheduledFor) body = preorderMessage({ ...order, scheduledFor: order.scheduledFor }, hi, storeName, storeAddress);
+  else switch (order.status) {
     case "PENDING":
       body = `${hi} Recebemos ${ref}.${eta}`;
       break;
@@ -263,13 +307,18 @@ export function wazeLink(address: string, zoneName?: string | null) {
   return `https://waze.com/ul?q=${encodeURIComponent(mapQuery(address, zoneName))}&navigate=yes`;
 }
 
-type CollectOrder = { paymentMethod: string; paymentStatus: string; totalCents: number; changeForCents: number | null };
+type CollectOrder = { paymentMethod: string; paymentStatus: string; totalCents: number; changeForCents: number | null; depositCents?: number | null; depositPaidAt?: Date | null };
 
 /**
  * O que o entregador cobra na porta. Pago online: nada. Pix pela chave: o cliente
  * normalmente já pagou, mas a loja confere (o entregador só avisa).
  */
 export function amountToCollect(o: CollectOrder): { cents: number; text: string } {
+  // Encomenda com sinal pago: cobra só o restante.
+  if (o.depositCents && depositPaid({ depositCents: o.depositCents, depositPaidAt: o.depositPaidAt ?? null, paymentStatus: o.paymentStatus })) {
+    const rest = o.totalCents - o.depositCents;
+    return { cents: rest, text: `Sinal já pago. Cobrar o restante: ${formatBRL(rest)}.` };
+  }
   if (o.paymentStatus === "PAID") return { cents: 0, text: "Já pago online. Não cobrar." };
   switch (o.paymentMethod) {
     case "CASH":
