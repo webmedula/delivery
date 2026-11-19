@@ -18,6 +18,9 @@ Há dois caminhos: **Easypanel** (mais simples, logo abaixo) ou **CyberPanel com
      ASAAS_WEBHOOK_TOKEN=<texto aleatório que você inventa>
      APP_URL=https://app.webtenda.com.br
      ADMIN_EMAILS=<seu e-mail de login; mais de um, separe por vírgula>
+     # Opcional: "Entrar com Google" (ver seção "Login com Google")
+     GOOGLE_CLIENT_ID=
+     GOOGLE_CLIENT_SECRET=
      ```
    - **Domains:** adicione `app.webtenda.com.br`, porta `3000`. O DNS (registro A de `app`) precisa apontar para o IP do VPS.
    - **Se o CyberPanel está no mesmo VPS** e já ocupa as portas 80/443: em vez de usar o domínio do Easypanel,
@@ -163,6 +166,26 @@ para os e-mails listados em `ADMIN_EMAILS`.
 
 Faça nessa ordem: o cadastro não confirma e-mail, então quem se cadastrar com um e-mail
 que já está em `ADMIN_EMAILS` vira administrador.
+
+## Login com Google
+
+O botão "Entrar com Google" aparece no login e no cadastro **só quando** `GOOGLE_CLIENT_ID` e
+`GOOGLE_CLIENT_SECRET` estão preenchidos. Sem eles, nada muda.
+
+1. No [Google Cloud Console](https://console.cloud.google.com/), crie (ou escolha) um projeto.
+2. **APIs e serviços > Tela de consentimento OAuth** (ou "Google Auth Platform > Branding"):
+   tipo **Externo**, nome `WebTenda`, e-mail de suporte, domínio autorizado `webtenda.com.br`.
+   Escopos: só `email`, `profile` e `openid` (não exigem verificação do Google). Publique o app
+   ("Em produção"), senão só os usuários de teste conseguem entrar.
+3. **Credenciais > Criar credenciais > ID do cliente OAuth**, tipo **Aplicativo da Web**:
+   - Origens JavaScript autorizadas: `https://app.webtenda.com.br`
+   - URIs de redirecionamento autorizados: `https://app.webtenda.com.br/api/auth/google/callback`
+4. Copie o ID do cliente e a chave secreta para `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` e refaça o deploy.
+
+O endereço de retorno é montado a partir de `APP_URL` (padrão `https://app.webtenda.com.br`).
+Como funciona: se o e-mail do Google já tem conta, o Google é vinculado a ela e a senha continua
+valendo; se é novo, o lojista informa só o nome da loja e o tipo de negócio. O login do cliente
+final das lojas (telefone/PIN) não muda.
 
 ## Lojas demo
 
