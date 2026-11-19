@@ -15,6 +15,7 @@ import { getPixQrCode, syncOrderPayment } from "@/lib/payments";
 import { cancelUnpaidOrder } from "../../actions";
 import { getSessionCustomer } from "@/lib/customers";
 import { currentStepIndex, formatClock, formatEta, trackingSteps } from "@/lib/delivery";
+import { balanceDue, depositPaid, formatSchedule } from "@/lib/preorder";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +36,16 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   const terms = termsFor(store.businessType);
   const combine = order.paymentMethod === "WHATSAPP";
   const steps = trackingSteps(order.fulfillment, store.businessType);
-  const stepIndex = currentStepIndex(order.status, order.fulfillment);
-  const stepTimes = [order.createdAt, order.acceptedAt, order.dispatchedAt, order.completedAt];
+  const stepIndex = currentStepIndex(order.status, order.fulfillment, store.businessType);
+  const scheduled = order.scheduledFor;
+  const stepTimes = scheduled && steps.length === 5
+    ? [order.createdAt, order.acceptedAt, null, order.dispatchedAt, order.completedAt]
+    : [order.createdAt, order.acceptedAt, order.dispatchedAt, order.completedAt];
+  const kind = scheduled ? "Encomenda" : "Pedido";
+  const signal = order.depositCents;
+  const signalPaid = depositPaid(order);
+  const due = balanceDue(order);
+  const where = order.fulfillment === "DELIVERY" ? "na entrega" : "na retirada";
   const showEta = !!order.etaMinutesMin && !awaiting && stepIndex >= 0 && stepIndex < 2;
   const pix = awaiting && order.paymentMethod === "ONLINE_PIX" ? await getPixQrCode(order) : null;
 
@@ -51,10 +60,16 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       {sendNow && combine && store.whatsapp && !store.isDemo && order.status === "PENDING" && <OpenWhatsapp url={storeWhatsappLink(store.whatsapp, message)} />}
       <div className="card text-center">
         <p className="text-sm text-stone-500">{store.name}</p>
-        <h1 className="text-2xl font-bold">Pedido #{order.number}</h1>
+        <h1 className="text-2xl font-bold">{kind} #{order.number}</h1>
         <p className="mt-2 inline-block rounded-full bg-brand-100 px-3 py-1 text-sm font-medium text-brand-700">
           {awaiting ? "Aguardando pagamento" : orderStatusText(order.status, order.fulfillment, store.businessType)}
         </p>
+        {scheduled && order.status !== "CANCELED" && (
+          <div className="mx-auto mt-3 max-w-xs rounded-xl bg-stone-50 px-4 py-3 ring-1 ring-stone-900/5">
+            <p className="text-xs font-medium uppercase tracking-wide text-stone-500">{order.fulfillment === "DELIVERY" ? "Entrega" : "Retirada"} marcada para</p>
+            <p className="text-lg font-bold text-stone-900 first-letter:uppercase">{formatSchedule(scheduled)}</p>
+          </div>
+        )}
         {showEta && (
           <p className="mt-3 text-sm text-stone-700">
             {order.fulfillment === "DELIVERY" ? "Previsão de entrega" : "Fica pronto"} entre{" "}
@@ -87,7 +102,10 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         {order.status === "READY_FOR_PICKUP" && (
           <p className="mt-3 text-sm text-stone-700">Pode vir buscar{store.address ? <> em <strong>{store.address}</strong></> : ""}.</p>
         )}
-        {order.paymentStatus === "PAID" && <p className="mt-2 text-sm font-medium text-green-700">✓ Pagamento confirmado</p>}
+        {order.paymentStatus === "PAID" && !signal && <p className="mt-2 text-sm font-medium text-green-700">✓ Pagamento confirmado</p>}
+        {signal && signalPaid && (
+          <p className="mt-2 text-sm font-medium text-green-700">✓ Sinal de {formatBRL(signal)} pago · falta {formatBRL(due)} {where}</p>
+        )}
         {order.paymentStatus === "EXPIRED" && <p className="mt-2 text-sm text-stone-600">O pagamento não foi concluído e o pedido foi cancelado.</p>}
         {order.paymentStatus === "FAILED" && <p className="mt-2 text-sm text-stone-600">Não foi possível gerar o pagamento. Faça o pedido de novo com outra forma de pagamento.</p>}
       </div>
@@ -117,7 +135,10 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       )}
       {awaiting && (
         <div className="card space-y-3">
-          <h2 className="text-center font-semibold">Pague {formatBRL(order.totalCents)} para enviar o pedido à loja</h2>
+          <h2 className="text-center font-semibold">
+            {signal ? <>Pague o sinal de {formatBRL(signal)} para confirmar a encomenda</> : <>Pague {formatBRL(order.totalCents)} para enviar {scheduled ? "a encomenda" : "o pedido"} à loja</>}
+          </h2>
+          {signal && <p className="text-center text-sm text-stone-600">O restante, {formatBRL(order.totalCents - signal)}, você paga {where}.</p>}
           {order.paymentMethod === "ONLINE_PIX" && pix && <PixPayment image={pix.encodedImage} payload={pix.payload} />}
           {order.paymentMethod === "ONLINE_PIX" && !pix && order.paymentUrl && (
             <a href={order.paymentUrl} target="_blank" className="btn w-full py-3">Abrir página de pagamento Pix</a>
@@ -154,9 +175,23 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           </div>
         )}
         <div className="flex justify-between font-semibold"><span>Total</span><span>{formatBRL(order.totalCents)}</span></div>
+        {signal && (
+          <>
+            <div className={`flex justify-between ${signalPaid ? "text-green-700" : ""}`}><span>Sinal{signalPaid ? " (pago)" : ""}</span><span>{formatBRL(signal)}</span></div>
+            <div className="flex justify-between"><span>Restante {where}</span><span>{formatBRL(order.totalCents - signal)}</span></div>
+          </>
+        )}
         {order.address && <p className="text-stone-600">Endereço: {order.address}</p>}
         <p className="text-stone-600">Pagamento: {paymentLabel[order.paymentMethod]}</p>
-        {order.paymentMethod === "PIX" && store.pixKey && <p className="text-stone-600">Chave Pix da loja: <strong>{store.pixKey}</strong></p>}
+        {order.paymentMethod === "PIX" && store.pixKey && (
+          signal && !signalPaid && order.status !== "CANCELED" ? (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+              Para confirmar, envie o sinal de <strong>{formatBRL(signal)}</strong> para a chave Pix da loja: <strong className="select-all">{store.pixKey}</strong>. Depois mande o comprovante no WhatsApp.
+            </p>
+          ) : (
+            <p className="text-stone-600">Chave Pix da loja: <strong>{store.pixKey}</strong></p>
+          )
+        )}
       </div>
       {store.isDemo && combine && (
         <div className="card space-y-2 border-green-600/20 bg-green-50 text-sm">

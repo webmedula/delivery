@@ -9,6 +9,29 @@ import { formatPhone } from "@/lib/phone";
 import { onlineMethods } from "@/lib/payments";
 import { etaFor, formatMinutes } from "@/lib/delivery";
 import { modulesFor, termsFor } from "@/lib/niche";
+import { availableDays, brDateOf, depositText, minHoursText } from "@/lib/preorder";
+
+/** Dias e horários livres para encomenda (descontando os dias que já lotaram). */
+async function preorderInfo(store: NonNullable<Awaited<ReturnType<typeof getStore>>>) {
+  const now = new Date();
+  const taken: Record<string, number> = {};
+  if (store.preorderDailyLimit) {
+    const booked = await db.order.findMany({
+      where: { storeId: store.id, scheduledFor: { gte: now }, status: { not: "CANCELED" } },
+      select: { scheduledFor: true },
+    });
+    for (const o of booked) {
+      const d = brDateOf(o.scheduledFor!);
+      taken[d] = (taken[d] ?? 0) + 1;
+    }
+  }
+  return {
+    days: availableDays(store, now, taken),
+    minHours: minHoursText(store.preorderMinHours),
+    depositPercent: store.depositPercent,
+    depositNote: store.depositPercent >= 100 ? depositText(100, null) : store.depositPercent > 0 ? `Sinal de ${store.depositPercent}% para confirmar` : null,
+  };
+}
 
 
 export async function getStore(slug: string) {
@@ -85,6 +108,7 @@ export async function renderStore(slug: string, productId?: string) {
                 })),
               }
             : null,
+        preorder: modules.preorder ? await preorderInfo(store) : null,
         terms: { catalog: terms.catalog, catalogLower: terms.catalogLower, emptyCatalog: terms.emptyCatalog, poweredBy: terms.poweredBy },
       }}
       initialProductId={productId}

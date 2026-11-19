@@ -14,11 +14,11 @@ export type NicheInfo = {
 export const NICHES: NicheInfo[] = [
   { value: "FOOD", param: "delivery", title: "Restaurante e delivery", examples: "Lanchonete, pizzaria, açaí, marmitas" },
   { value: "RETAIL", param: "loja", title: "Loja de roupas e acessórios", examples: "Moda, calçados, bolsas, bijuterias" },
+  { value: "PREORDER", param: "encomendas", title: "Encomendas", examples: "Bolos, doces, salgados para festa, marmitas da semana" },
 ];
 
 /** Próximos nichos, mostrados como "em breve" no cadastro. */
 export const UPCOMING_NICHES = [
-  { title: "Encomendas", examples: "Bolos, doces, salgados" },
   { title: "Barbearia e salão", examples: "Agendamento de horários" },
 ];
 
@@ -35,12 +35,15 @@ type StoreForModules = { businessType: BusinessType; acceptsDelivery: boolean; a
 /** Módulos ligados para a loja. O painel e o catálogo perguntam aqui, em vez de testar o tipo. */
 export function modulesFor(store: StoreForModules) {
   const retail = store.businessType === "RETAIL";
+  const preorder = store.businessType === "PREORDER";
   return {
+    /** Encomendas com dia e horário marcados, antecedência mínima e sinal. */
+    preorder,
     /** Entregadores e bairros: só para quem entrega. */
     couriers: store.acceptsDelivery,
     deliveryZones: store.acceptsDelivery,
     /** Tempo estimado de preparo/entrega mostrado ao cliente. */
-    eta: !retail,
+    eta: !retail && !preorder,
     /** Cor e tamanho com estoque por variação. */
     variants: retail,
     /** Tela de estoque no painel. */
@@ -90,6 +93,18 @@ const TERMS: Record<BusinessType, Terms> = {
     productExample: "Preço, ex.: 129,90",
     poweredBy: "Catálogo online por",
   },
+  PREORDER: {
+    catalog: "Cardápio",
+    catalogLower: "cardápio",
+    preparing: "Em produção",
+    acceptAction: "Confirmar encomenda",
+    startAction: "Começar produção",
+    preparingMessage: "está confirmada",
+    emptyCatalog: "O cardápio de encomendas ainda está sendo montado.",
+    categoryPlaceholder: "Ex.: Bolos",
+    productExample: "Preço, ex.: 120,00",
+    poweredBy: "Encomendas online por",
+  },
 };
 
 export function termsFor(type: BusinessType = "FOOD"): Terms {
@@ -107,6 +122,12 @@ const BASE_STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 export function orderStatusLabelsFor(type: BusinessType = "FOOD"): Record<OrderStatus, string> {
+  // Encomenda é palavra feminina.
+  if (type === "PREORDER")
+    return {
+      PENDING: "Recebida", CONFIRMED: "Confirmada", PREPARING: "Em produção", OUT_FOR_DELIVERY: "Saiu para entrega",
+      READY_FOR_PICKUP: "Pronta para retirar", COMPLETED: "Concluída", CANCELED: "Cancelada",
+    };
   return { ...BASE_STATUS_LABEL, PREPARING: termsFor(type).preparing };
 }
 
@@ -123,6 +144,11 @@ export function signupDefaultsFor(type: BusinessType) {
     return {
       store: { businessType: type, acceptsDelivery: false, acceptsPickup: true, whatsappCheckout: true },
       categories: ["Novidades", "Vestidos", "Blusas", "Calças e saias", "Acessórios"],
+    };
+  if (type === "PREORDER")
+    return {
+      store: { businessType: type, acceptsDelivery: false, acceptsPickup: true, preorderMinHours: 48, depositPercent: 50 },
+      categories: ["Bolos", "Doces", "Salgados", "Kits festa"],
     };
   return { store: { businessType: type }, categories: [] as string[] };
 }

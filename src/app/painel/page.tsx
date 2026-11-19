@@ -14,6 +14,8 @@ import { NewOrderAlert } from "@/components/NewOrderAlert";
 import { formatPhone, whatsappLink } from "@/lib/phone";
 import { courierUrl, storeUrl } from "@/lib/store-url";
 import { CourierPicker } from "@/components/CourierPicker";
+import { balanceDue, brDateOf, depositPaid, formatSchedule } from "@/lib/preorder";
+import { toggleDepositPaid } from "./encomendas/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +29,8 @@ export default async function OrdersPage() {
     db.order.findMany({
       where: { storeId, status: { in: OPEN_STATUSES }, paymentStatus: { not: "AWAITING" } },
       include: { items: true },
-      orderBy: { createdAt: "asc" },
+      // Encomendas: as de data mais próxima primeiro.
+      orderBy: store.businessType === "PREORDER" ? [{ scheduledFor: "asc" }, { createdAt: "asc" }] : { createdAt: "asc" },
     }),
     db.order.aggregate({
       where: { storeId, createdAt: { gte: startOfDay }, status: { not: "CANCELED" }, paymentStatus: { not: "AWAITING" } },
@@ -139,8 +142,11 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
   const step = nextStep(o.status, o.fulfillment, businessType);
   const orderStatusLabel = orderStatusLabelsFor(businessType);
   const age = minutesSince(o.createdAt, now);
-  // Envio tem outro ritmo: separar e postar em até 2 dias.
-  const late = o.fulfillment === "SHIPPING" ? age > 48 * 60 : o.etaMinutesMax ? age > o.etaMinutesMax : age > 60;
+  const scheduled = o.scheduledFor;
+  // Envio tem outro ritmo: separar e postar em até 2 dias. Encomenda: atrasada só depois da hora marcada.
+  const late = scheduled ? now > scheduled && o.status !== "READY_FOR_PICKUP" && o.status !== "OUT_FOR_DELIVERY" : o.fulfillment === "SHIPPING" ? age > 48 * 60 : o.etaMinutesMax ? age > o.etaMinutesMax : age > 60;
+  const dueToday = !!scheduled && brDateOf(scheduled) === brDateOf(now);
+  const signalPaid = depositPaid(o);
   const ageText = age >= 1440 ? `${Math.floor(age / 1440)} d` : age >= 120 ? `${Math.floor(age / 60)} h` : `${age} min`;
   const message = customerMessage(o, storeName, trackingUrl, storeAddress, businessType);
 
@@ -151,9 +157,15 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
         <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${o.fulfillment === "DELIVERY" ? "bg-sky-100 text-sky-800" : o.fulfillment === "SHIPPING" ? "bg-amber-100 text-amber-800" : "bg-violet-100 text-violet-800"}`}>
           {o.fulfillment === "DELIVERY" ? "Entrega" : o.fulfillment === "SHIPPING" ? "Envio" : "Retirada"}
         </span>
-        <span className={`ml-auto text-xs font-medium ${late ? "text-red-600" : "text-stone-500"}`} title={o.createdAt.toISOString()}>
-          há {ageText}{late ? " · atrasado" : ""}
-        </span>
+        {scheduled ? (
+          <span className={`ml-auto rounded-md px-2 py-0.5 text-xs font-semibold first-letter:uppercase ${late ? "bg-red-100 text-red-700" : dueToday ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-700"}`}>
+            {formatSchedule(scheduled, now)}{late ? " · atrasada" : ""}
+          </span>
+        ) : (
+          <span className={`ml-auto text-xs font-medium ${late ? "text-red-600" : "text-stone-500"}`} title={o.createdAt.toISOString()}>
+            há {ageText}{late ? " · atrasado" : ""}
+          </span>
+        )}
       </div>
       <div className="text-sm">
         <p className="font-medium">
@@ -192,12 +204,28 @@ function OrderCard({ order: o, nth, now, storeName, storeAddress, businessType, 
           {o.changeForCents ? ` · troco p/ ${formatBRL(o.changeForCents)}` : ""}
           {o.paymentStatus !== "NONE" && (
             <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-medium ${o.paymentStatus === "PAID" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
-              {o.paymentStatus === "PAID" ? "✓ " : ""}{paymentStatusLabel[o.paymentStatus]}
+              {o.paymentStatus === "PAID" ? "✓ " : ""}{o.depositCents && o.paymentStatus === "PAID" ? "Sinal pago online" : paymentStatusLabel[o.paymentStatus]}
             </span>
           )}
         </span>
         <span className="font-semibold">{formatBRL(o.totalCents)}</span>
       </div>
+      {o.depositCents && (
+        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm ${signalPaid ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-900"}`}>
+          <span>
+            {signalPaid ? "✓ Sinal pago" : "Sinal pendente"}: {formatBRL(o.depositCents)}
+            <span className="block text-xs">Falta receber {formatBRL(balanceDue(o))} {o.fulfillment === "DELIVERY" ? "na entrega" : "na retirada"}</span>
+          </span>
+          {o.paymentStatus !== "PAID" && (
+            <form action={toggleDepositPaid}>
+              <input type="hidden" name="orderId" value={o.id} />
+              <button className="rounded-md bg-white px-2 py-1 text-xs font-semibold ring-1 ring-current/20 hover:bg-white/70">
+                {o.depositPaidAt ? "Desfazer" : "Marcar sinal recebido"}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
       {o.discountCents > 0 && (
         <p className="text-xs text-green-700">
           Desconto {o.loyaltyReward ? "de fidelidade" : `cupom ${o.couponCode}`}: −{formatBRL(o.discountCents)}

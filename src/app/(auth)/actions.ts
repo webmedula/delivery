@@ -15,7 +15,7 @@ const signupSchema = z.object({
   name: z.string().trim().min(2, "Informe seu nome."),
   email: z.string().trim().toLowerCase().email("E-mail inválido."),
   password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres."),
-  businessType: z.enum(["FOOD", "RETAIL"]).default("FOOD"),
+  businessType: z.enum(["FOOD", "RETAIL", "PREORDER"]).default("FOOD"),
 });
 
 async function uniqueSlug(base: string) {

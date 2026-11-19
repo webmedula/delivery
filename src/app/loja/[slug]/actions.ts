@@ -18,6 +18,7 @@ import { OutOfStockError, reserveStock } from "@/lib/stock";
 import { formatShippingAddress, normalizeCep, resolveShipping } from "@/lib/shipping";
 import { orderSummaryMessage, storeWhatsappLink } from "@/lib/order-message";
 import { termsFor } from "@/lib/niche";
+import { brDateTime, depositFor, validateSchedule } from "@/lib/preorder";
 import { storeUrl } from "@/lib/store-url";
 import { clearCustomerSession, getLoyaltyStatus, getSessionCustomer, setCustomerSession } from "@/lib/customers";
 
@@ -47,7 +48,18 @@ const schema = z.object({
   couponCode: z.string().max(40).optional(),
   useReward: z.boolean().optional(),
   marketingOptIn: z.boolean().optional(),
+  /** Encomenda: dia ("2026-11-21") e horário ("14:00") escolhidos. */
+  schedule: z.object({ date: z.string().max(10), time: z.string().max(5) }).optional(),
 });
+
+/** Encomendas já marcadas para o dia (Brasília), para o limite diário da loja. */
+async function countScheduledOn(storeId: string, date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 0;
+  const start = brDateTime(date, "00:00");
+  return db.order.count({
+    where: { storeId, scheduledFor: { gte: start, lt: new Date(start.getTime() + 24 * 60 * 60_000) }, status: { not: "CANCELED" } },
+  });
+}
 
 export type PlaceOrderResult =
   | { ok: true; orderId: string; /** Pedido para fechar no WhatsApp: abrir este link com a mensagem pronta. */ whatsappUrl?: string }
@@ -126,6 +138,19 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   const quote = quoteOrder(data.cart, catalog, { ...store, deliveryFeeCents: feeCents }, data.fulfillment);
   if (!quote.ok) return quote;
 
+  // Encomenda: dia e horário dentro das regras da loja (antecedência, dias da semana, limite por dia).
+  const preorder = store.businessType === "PREORDER";
+  let scheduledFor: Date | null = null;
+  if (preorder) {
+    const date = data.schedule?.date;
+    const taken = date ? await countScheduledOn(store.id, date) : 0;
+    const check = validateSchedule(store, date, data.schedule?.time, new Date(), taken);
+    if (!check.ok) return check;
+    scheduledFor = check.scheduledFor;
+    if (store.depositPercent > 0 && (data.paymentMethod === "CASH" || data.paymentMethod === "CARD_ON_DELIVERY"))
+      return { ok: false, error: "Esta loja cobra um sinal para confirmar a encomenda. Escolha Pix, cartão online ou combinar pelo WhatsApp." };
+  }
+
   if (data.fulfillment === "SHIPPING" && (data.paymentMethod === "CASH" || data.paymentMethod === "CARD_ON_DELIVERY"))
     return { ok: false, error: "Para envio, escolha Pix, cartão online ou combinar pelo WhatsApp." };
   if (data.paymentMethod === "WHATSAPP" && !(store.whatsappCheckout && store.whatsapp))
@@ -158,7 +183,9 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
     couponCode = coupon.code;
   }
 
-  if (online && quote.totalCents - discount < MIN_ONLINE_PAYMENT_CENTS)
+  // Sinal da encomenda (o resto é pago na retirada). Pagando online, a cobrança é só do sinal.
+  const depositCents = preorder ? depositFor(quote.totalCents - discount, store.depositPercent) : null;
+  if (online && (depositCents ?? quote.totalCents - discount) < MIN_ONLINE_PAYMENT_CENTS)
     return { ok: false, error: "Pagamento online só a partir de R$ 5,00. Escolha outra forma de pagamento." };
 
   const changeForCents =
@@ -234,6 +261,8 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
             loyaltyReward,
             totalCents: quote.totalCents - discount,
             stockReserved,
+            scheduledFor,
+            depositCents,
             items: {
               create: quote.lines.map((l) => ({
                 productId: l.productId, variantId: l.variantId ?? null, variantLabel: l.variantLabel ?? null,

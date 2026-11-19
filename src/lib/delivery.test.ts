@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  currentStepIndex, customerMessage, etaFor, formatEta, guessZone, nextStep, parseMinutesRange, resolveDeliveryFee, stampsFor,
+  amountToCollect, currentStepIndex, customerMessage, etaFor, formatEta, guessZone, nextStep, parseMinutesRange, resolveDeliveryFee, stampsFor,
 } from "./delivery";
 
 describe("nextStep", () => {
@@ -142,5 +142,34 @@ describe("entregadores", () => {
       { name: "Leo", deliveries: 3, feesCents: 1800, cashCents: 5000, cardCents: 5000 },
       { name: "Sem entregador", deliveries: 1, feesCents: 600, cashCents: 5000, cardCents: 0 },
     ]);
+  });
+});
+
+describe("encomendas no quadro e nas mensagens", () => {
+  const at = new Date("2026-11-21T17:00:00Z"); // sábado 14:00 em Brasília
+  const order = {
+    number: 12, status: "CONFIRMED" as const, fulfillment: "PICKUP" as const, customerName: "Ana Lima", totalCents: 12990,
+    paymentStatus: "NONE", paymentMethod: "PIX", changeForCents: null, createdAt: new Date("2026-11-18T13:00:00Z"),
+    etaMinutesMin: null, etaMinutesMax: null, scheduledFor: at, depositCents: 6495, depositPaidAt: new Date(),
+  };
+
+  it("confirma primeiro e começa a produção depois", () => {
+    expect(nextStep("PENDING", "PICKUP", "PREORDER")).toEqual({ status: "CONFIRMED", label: "Confirmar encomenda" });
+    expect(nextStep("CONFIRMED", "PICKUP", "PREORDER")).toEqual({ status: "PREPARING", label: "Começar produção" });
+    expect(currentStepIndex("PREPARING", "PICKUP", "PREORDER")).toBe(2);
+  });
+
+  it("avisa o dia marcado e o restante a pagar", () => {
+    const confirmed = customerMessage(order, "Doce Encanto", "https://x/p", null, "PREORDER");
+    expect(confirmed).toContain("encomenda #12 da Doce Encanto está confirmada para sábado, 21/11 às 14:00");
+    const ready = customerMessage({ ...order, status: "READY_FOR_PICKUP" }, "Doce Encanto", "https://x/p", "Rua A, 1", "PREORDER");
+    expect(ready).toContain("pronta para retirar em Rua A, 1");
+    expect(ready).toContain("Valor a pagar na retirada: R$ 64,95");
+  });
+
+  it("entregador cobra só o restante quando o sinal foi pago", () => {
+    const r = amountToCollect({ paymentMethod: "PIX", paymentStatus: "PAID", totalCents: 10000, changeForCents: null, depositCents: 5000 });
+    expect(r.cents).toBe(5000);
+    expect(r.text.replace(/\u00a0/g, " ")).toBe("Sinal já pago. Cobrar o restante: R$ 50,00.");
   });
 });

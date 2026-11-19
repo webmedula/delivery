@@ -49,6 +49,7 @@ enum DiscountType {
 enum BusinessType {
   FOOD    // restaurante, lanchonete, açaí, pizzaria (delivery)
   RETAIL  // loja de roupas, calçados e acessórios
+  PREORDER // encomendas: bolos, doces, salgados para festa, marmitas da semana (data marcada)
 }
 
 enum PaymentMethod {
@@ -114,6 +115,14 @@ model Store {
   shippingFreeAboveCents Int?             // frete grátis no envio mais barato a partir deste subtotal
   shippingMethods        ShippingMethod[]
   images                 StoredImage[]
+  // Encomendas (tipo PREORDER): o cliente escolhe dia e horário. Regras em src/lib/preorder.ts.
+  preorderMinHours       Int      @default(48)  // antecedência mínima, em horas
+  preorderMaxDays        Int      @default(30)  // aceita encomendas até quantos dias à frente
+  preorderWeekdays       Int[]    @default([2, 3, 4, 5, 6]) // dias da semana que entrega (0 = domingo)
+  preorderTimes          String[] @default(["09:00", "11:00", "14:00", "16:00", "18:00"]) // horários oferecidos
+  preorderDailyLimit     Int?     // máximo de encomendas por dia (vazio = sem limite)
+  preorderClosedDates    String[] @default([]) // dias sem encomenda, ex.: "2026-12-25"
+  depositPercent         Int      @default(0)   // sinal cobrado no pedido (0 = sem sinal, 100 = tudo antecipado)
 
   planId             String
   plan               Plan               @relation(fields: [planId], references: [id])
@@ -278,6 +287,10 @@ model Order {
   shippingDaysMin    Int?
   shippingDaysMax    Int?
   trackingCode       String?
+  // Encomenda: dia e hora marcados para retirar/entregar, e o sinal (o resto é pago na retirada).
+  scheduledFor       DateTime?
+  depositCents       Int?
+  depositPaidAt      DateTime?       // sinal confirmado (online pelo Asaas ou marcado pela loja)
   items            OrderItem[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -288,6 +301,7 @@ model Order {
   @@index([couponId])
   @@index([storeId, status])
   @@index([courierId])
+  @@index([storeId, scheduledFor])
 }
 
 // Bairro atendido e sua taxa de entrega. Se a loja tem bairros, o cliente escolhe um na sacola

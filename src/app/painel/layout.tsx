@@ -14,6 +14,7 @@ function navFor(store: Parameters<typeof modulesFor>[0]): NavItem[] {
   const terms = termsFor(store.businessType);
   return [
     { href: "/painel", label: "Pedidos" },
+    ...(modules.preorder ? [{ href: "/painel/encomendas", label: "Agenda" }] : []),
     { href: "/painel/historico", label: "Histórico" },
     ...(modules.couriers ? [{ href: "/painel/entregadores", label: "Entregadores" }] : []),
     { href: "/painel/cardapio", label: terms.catalog },

@@ -10,7 +10,7 @@ type Values = {
   deliveryFee: string; minOrder: string; acceptsDelivery: boolean; acceptsPickup: boolean; isOpen: boolean;
   deliveryMinutesMin: string; deliveryMinutesMax: string; pickupMinutesMin: string; pickupMinutesMax: string;
   hasZones: boolean;
-  businessType: "FOOD" | "RETAIL"; whatsappCheckout: boolean;
+  businessType: "FOOD" | "RETAIL" | "PREORDER"; whatsappCheckout: boolean;
 };
 
 export function StoreSettingsForm({ store }: { store: Values }) {
@@ -27,6 +27,9 @@ export function StoreSettingsForm({ store }: { store: Values }) {
           {NICHES.map((n) => <option key={n.value} value={n.value}>{n.title} ({n.examples.toLowerCase()})</option>)}
         </select>
         <p className="mt-1 text-xs text-stone-500">Muda os textos e os recursos do painel e do catálogo (ex.: cor, tamanho e estoque na loja de roupas).</p>
+        {store.businessType === "PREORDER" && (
+          <p className="mt-1 text-xs text-brand-700">Antecedência, dias, horários, limite por dia e sinal ficam em <a href="/painel/encomendas" className="font-medium underline">Agenda</a>.</p>
+        )}
       </div>
       <div><label className="label">Nome</label><input name="name" defaultValue={store.name} className="input" required /></div>
       <div><label className="label">Descrição</label><textarea name="description" defaultValue={store.description} className="input" rows={2} /></div>
