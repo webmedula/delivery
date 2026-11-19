@@ -21,6 +21,8 @@ Há dois caminhos: **Easypanel** (mais simples, logo abaixo) ou **CyberPanel com
      # Opcional: "Entrar com Google" (ver seção "Login com Google")
      GOOGLE_CLIENT_ID=
      GOOGLE_CLIENT_SECRET=
+     # Opcional: Google Agenda das barbearias (ver seção "Google Agenda")
+     GOOGLE_AGENDA=
      ```
    - **Domains:** adicione `app.webtenda.com.br`, porta `3000`. O DNS (registro A de `app`) precisa apontar para o IP do VPS.
    - **Se o CyberPanel está no mesmo VPS** e já ocupa as portas 80/443: em vez de usar o domínio do Easypanel,
@@ -186,6 +188,53 @@ O endereço de retorno é montado a partir de `APP_URL` (padrão `https://app.we
 Como funciona: se o e-mail do Google já tem conta, o Google é vinculado a ela e a senha continua
 valendo; se é novo, o lojista informa só o nome da loja e o tipo de negócio. O login do cliente
 final das lojas (telefone/PIN) não muda.
+
+## Google Agenda (barbearias e salões)
+
+Cada agendamento aparece sozinho, na hora, no Google Agenda da barbearia e/ou do profissional.
+Cancelado ou falta: sai da agenda. Atendido: ganha um ✓. Usa o **mesmo projeto e as mesmas
+credenciais** do "Login com Google" e o **mesmo endereço de retorno**
+(`https://app.webtenda.com.br/api/auth/google/callback`), então não precisa cadastrar outro.
+
+Só aparece com `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` **e** `GOOGLE_AGENDA=1`. Sem o
+`GOOGLE_AGENDA=1` nada muda, então dá para publicar o código antes de configurar o Google.
+
+No [Google Cloud Console](https://console.cloud.google.com/), no projeto do Login com Google:
+
+1. **APIs e serviços > Biblioteca**: procure **Google Calendar API** e clique em **Ativar**.
+2. **Google Auth Platform > Acesso a dados > Adicionar ou remover escopos**: marque
+   `https://www.googleapis.com/auth/calendar.app.created` ("criar agendas secundárias e ver,
+   criar, alterar e apagar eventos nelas") e salve. É o escopo mais restrito da agenda: o WebTenda
+   só mexe na agenda que ele mesmo cria e não vê os outros compromissos da pessoa.
+3. **Google Auth Platform > Branding**: página inicial `https://webtenda.com.br`, política de
+   privacidade `https://webtenda.com.br/privacidade/`, domínio autorizado `webtenda.com.br`.
+4. No Easypanel, serviço `app`, **Environment**: `GOOGLE_AGENDA=1` e refaça o deploy.
+5. Painel da barbearia > **Profissionais > Google Agenda**: "Conectar" (agenda com todos os
+   horários) ou, para cada profissional, "Mandar link pelo WhatsApp" (vale 7 dias; ele conecta a
+   conta Google dele no celular).
+
+**Verificação do Google.** Se o Console listar o escopo como sensível, o Google exige a
+verificação do app antes de liberar para todo mundo. Até lá, quem conecta vê a tela "O Google não
+verificou este app" (dá para seguir em "Avançado") e há limite de contas. O pedido é feito em
+**Google Auth Platform > Central de verificação** e pede:
+- domínio `webtenda.com.br` verificado no [Google Search Console](https://search.google.com/search-console)
+  com a mesma conta Google que é dona do projeto;
+- página inicial pública e política de privacidade no mesmo domínio (já existe em `/privacidade/`);
+- uma justificativa do escopo (sugestão: "Barbearias e salões usam o WebTenda para receber
+  agendamentos. Com a permissão, o WebTenda cria uma agenda própria na conta Google do
+  estabelecimento ou do profissional e mantém nela um evento por agendamento, criando, alterando e
+  apagando quando o agendamento muda. Usamos o escopo calendar.app.created, o mais restrito
+  possível, porque não precisamos ler nem alterar nenhuma outra agenda do usuário.");
+- um vídeo no YouTube (não listado), em inglês ou com legendas em inglês, mostrando o clique em
+  "Conectar", a tela de permissão do Google com o nome WebTenda e o ID do cliente na barra de
+  endereço, e um agendamento aparecendo no Google Agenda.
+O Google diz que a análise leva até 10 dias e pode pedir ajustes por e-mail.
+
+**Como funciona por dentro.** A sincronização roda depois da resposta (o cliente nunca espera o
+Google). Se o Google falhar, o agendamento fica marcado (`Order.calendarSyncPending`) e o app
+tenta de novo a cada 10 minutos. Se a pessoa tirar o acesso pelo Google, a conexão aparece como
+"Desconectado pelo Google" no painel. O que for mexido direto no Google Agenda não volta para o
+WebTenda. Lojas demo não mostram a opção.
 
 ## Lojas demo
 

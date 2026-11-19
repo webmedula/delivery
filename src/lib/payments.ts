@@ -200,17 +200,20 @@ export async function createOrderPayment(orderId: string, cpfCnpjInput: string):
 /** Aplica um evento do Asaas ao pedido da cobrança. Devolve se mudou algo. */
 export async function applyPaymentEvent(paymentId: string, event: string, eventId?: string): Promise<boolean> {
   try {
-    return await db.$transaction(async (tx) => {
+    const changed = await db.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { paymentId } });
       if (eventId) await tx.billingEvent.create({ data: { id: eventId, type: event, storeId: order?.storeId } });
-      if (!order) return false;
+      if (!order) return null;
       const update = paymentUpdateFor(event, order);
-      if (!update) return false;
+      if (!update) return null;
       // Só atualiza se a situação não mudou no meio do caminho.
       const res = await tx.order.updateMany({ where: { id: order.id, paymentStatus: order.paymentStatus }, data: update });
       if (res.count > 0 && update.status === "CANCELED") await releaseStock(tx, order.id);
-      return res.count > 0;
+      return res.count > 0 ? order : null;
     });
+    // Agendamento pago: entra no Google Agenda da barbearia (se conectado).
+    if (changed?.fulfillment === "APPOINTMENT") await (await import("./google-calendar")).queueCalendarSync(changed.id);
+    return !!changed;
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return false; // evento repetido
     throw e;

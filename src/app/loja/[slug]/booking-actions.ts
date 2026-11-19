@@ -17,6 +17,7 @@ import { canCustomerCancel, canDo, totalDuration, validateBooking, type BookingD
 import { activeProfessionals, bookingAvailability, busyPeriods, loadByProfessional } from "@/lib/booking-data";
 import { getLoyaltyStatus, setCustomerSession } from "@/lib/customers";
 import { evaluateCoupon, resolveCustomer } from "@/lib/order-customer";
+import { queueCalendarSync } from "@/lib/google-calendar";
 
 const ids = z.array(z.string().max(40)).min(1, "Escolha pelo menos um serviço.").max(6, "Escolha no máximo 6 serviços.");
 
@@ -196,6 +197,7 @@ export async function placeBooking(input: z.input<typeof schema>): Promise<Place
         const payment = await createOrderPayment(order.id, data.cpfCnpj ?? "");
         if (!payment.ok) return payment;
       }
+      await queueCalendarSync(order.id);
       revalidatePath("/painel/agenda");
       return { ok: true, id: order.id };
     } catch (e) {
@@ -219,6 +221,7 @@ export async function confirmPresence(formData: FormData) {
   const order = await customerAppointment(formData);
   if (!order || order.status === "CANCELED" || order.status === "COMPLETED") return;
   await db.order.update({ where: { id: order.id }, data: { customerConfirmedAt: order.customerConfirmedAt ?? new Date(), ...(order.status === "PENDING" ? { status: "CONFIRMED", acceptedAt: new Date() } : {}) } });
+  await queueCalendarSync(order.id);
   revalidatePath(`/loja/${order.store.slug}/agendamento/${order.id}`);
   revalidatePath("/painel/agenda");
 }
@@ -230,6 +233,7 @@ export async function cancelByCustomer(formData: FormData) {
   if (order.paymentStatus === "AWAITING") await cancelAwaitingOrder(order);
   else if (canCustomerCancel(order, order.store.bookingCancelHours))
     await db.order.update({ where: { id: order.id }, data: { status: "CANCELED", canceledAt: new Date() } });
+  await queueCalendarSync(order.id);
   revalidatePath(`/loja/${order.store.slug}/agendamento/${order.id}`);
   revalidatePath("/painel/agenda");
 }

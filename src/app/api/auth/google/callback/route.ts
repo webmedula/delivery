@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/auth";
 import { checkGoogleState, fetchGoogleProfile, googleEnabled, savePendingGoogleSignup } from "@/lib/google-auth";
+import { calendarEnabled, finishCalendarConnect, isCalendarState } from "@/lib/google-calendar";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,10 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   if (!googleEnabled()) redirect("/entrar");
   const url = new URL(request.url);
+  // Mesmo endereço de retorno serve para conectar o Google Agenda (o "state" diz qual é qual).
+  if (isCalendarState(url.searchParams.get("state"))) {
+    redirect(calendarEnabled() ? await finishCalendarConnect(url) : "/painel");
+  }
   const { ok, tipo } = await checkGoogleState(url.searchParams.get("state"));
   const code = url.searchParams.get("code");
   // Cancelou na tela do Google, ou o link expirou: volta sem alarde.

@@ -89,23 +89,23 @@ model Plan {
 }
 
 model Store {
-  id                     String           @id @default(cuid())
-  slug                   String           @unique
+  id                     String               @id @default(cuid())
+  slug                   String               @unique
   name                   String
   description            String?
   whatsapp               String? // só dígitos, com DDI: 5511999999999
   address                String?
   logoUrl                String?
   themeColor             String? // cor do cardápio, ex.: #ea580c (vazio = laranja WebTenda)
-  isOpen                 Boolean          @default(true)
-  businessType           BusinessType     @default(FOOD)
+  isOpen                 Boolean              @default(true)
+  businessType           BusinessType         @default(FOOD)
   // "Finalizar pelo WhatsApp": o pedido é registrado e o cliente manda a mensagem pronta para a loja,
   // que combina pagamento e entrega na conversa.
-  whatsappCheckout       Boolean          @default(false)
-  deliveryFeeCents       Int              @default(0)
-  minOrderCents          Int              @default(0)
-  acceptsDelivery        Boolean          @default(true)
-  acceptsPickup          Boolean          @default(true)
+  whatsappCheckout       Boolean              @default(false)
+  deliveryFeeCents       Int                  @default(0)
+  minOrderCents          Int                  @default(0)
+  acceptsDelivery        Boolean              @default(true)
+  acceptsPickup          Boolean              @default(true)
   pixKey                 String?
   // Tempo estimado mostrado ao cliente, em minutos (vazio = não mostra).
   deliveryMinutesMin     Int?
@@ -115,29 +115,30 @@ model Store {
   deliveryZones          DeliveryZone[]
   couriers               Courier[]
   // Envio para outras cidades (Correios/transportadora). Frete pela tabela de ShippingMethod.
-  acceptsShipping        Boolean          @default(false)
+  acceptsShipping        Boolean              @default(false)
   shippingOriginUf       String? // estado de onde a loja envia, ex.: "SP" (vale o preço "mesmo estado")
   shippingFreeAboveCents Int? // frete grátis no envio mais barato a partir deste subtotal
   shippingMethods        ShippingMethod[]
   images                 StoredImage[]
   // Encomendas (tipo PREORDER): o cliente escolhe dia e horário. Regras em src/lib/preorder.ts.
-  preorderMinHours       Int              @default(48) // antecedência mínima, em horas
-  preorderMaxDays        Int              @default(30) // aceita encomendas até quantos dias à frente
-  preorderWeekdays       Int[]            @default([2, 3, 4, 5, 6]) // dias da semana que entrega (0 = domingo)
-  preorderTimes          String[]         @default(["09:00", "11:00", "14:00", "16:00", "18:00"]) // horários oferecidos
+  preorderMinHours       Int                  @default(48) // antecedência mínima, em horas
+  preorderMaxDays        Int                  @default(30) // aceita encomendas até quantos dias à frente
+  preorderWeekdays       Int[]                @default([2, 3, 4, 5, 6]) // dias da semana que entrega (0 = domingo)
+  preorderTimes          String[]             @default(["09:00", "11:00", "14:00", "16:00", "18:00"]) // horários oferecidos
   preorderDailyLimit     Int? // máximo de encomendas por dia (vazio = sem limite)
-  preorderClosedDates    String[]         @default([]) // dias sem encomenda, ex.: "2026-12-25"
-  depositPercent         Int              @default(0) // sinal cobrado no pedido (0 = sem sinal, 100 = tudo antecipado)
+  preorderClosedDates    String[]             @default([]) // dias sem encomenda, ex.: "2026-12-25"
+  depositPercent         Int                  @default(0) // sinal cobrado no pedido (0 = sem sinal, 100 = tudo antecipado)
   diningTables           DiningTable[]
   // Agendamento (tipo BOOKING): o cliente escolhe serviço, profissional, dia e horário.
   // O sinal usa depositPercent. Regras em src/lib/booking.ts.
-  bookingStepMinutes     Int              @default(30) // de quanto em quanto tempo os horários começam (15, 20, 30, 60)
-  bookingMinMinutes      Int              @default(60) // antecedência mínima para marcar, em minutos
-  bookingMaxDays         Int              @default(30) // agenda aberta até quantos dias à frente
-  bookingCancelHours     Int              @default(2) // cliente pode cancelar pelo link até X horas antes
-  bookingClosedDates     String[]         @default([]) // feriados e dias sem atendimento, ex.: "2026-12-25"
+  bookingStepMinutes     Int                  @default(30) // de quanto em quanto tempo os horários começam (15, 20, 30, 60)
+  bookingMinMinutes      Int                  @default(60) // antecedência mínima para marcar, em minutos
+  bookingMaxDays         Int                  @default(30) // agenda aberta até quantos dias à frente
+  bookingCancelHours     Int                  @default(2) // cliente pode cancelar pelo link até X horas antes
+  bookingClosedDates     String[]             @default([]) // feriados e dias sem atendimento, ex.: "2026-12-25"
   professionals          Professional[]
   timeBlocks             TimeBlock[]
+  calendarConnections    CalendarConnection[]
 
   planId                String
   plan                  Plan               @relation(fields: [planId], references: [id])
@@ -323,6 +324,9 @@ model Order {
   customerConfirmedAt DateTime? // o cliente confirmou presença pelo link do lembrete
   reminderSentAt      DateTime? // a loja mandou o lembrete pelo WhatsApp
   noShowAt            DateTime? // o cliente não compareceu (o agendamento fica cancelado)
+  // Google Agenda: a última tentativa de levar o agendamento para lá falhou (tenta de novo a cada 10 min).
+  calendarSyncPending Boolean         @default(false)
+  calendarEvents      CalendarEvent[]
   items               OrderItem[]
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
@@ -430,25 +434,61 @@ model DiningTable {
 // Profissional da barbearia/salão. Tem os próprios dias e horários de trabalho e
 // pode fazer só alguns serviços. O cliente escolhe com quem quer ser atendido.
 model Professional {
-  id                String      @id @default(cuid())
+  id                String              @id @default(cuid())
   storeId           String
-  store             Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store             Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
   name              String
   phone             String? // mesmo formato de Customer.phone
   photoUrl          String?
   // Expediente de cada dia da semana (0 = domingo): "09:00-19:00" ou "" para folga.
-  workHours         String[]    @default(["", "09:00-19:00", "09:00-19:00", "09:00-19:00", "09:00-19:00", "09:00-19:00", "08:00-14:00"])
+  workHours         String[]            @default(["", "09:00-19:00", "09:00-19:00", "09:00-19:00", "09:00-19:00", "09:00-19:00", "08:00-14:00"])
   breakStart        String? // intervalo de almoço, ex.: "12:00"
   breakEnd          String?
-  serviceIds        String[]    @default([]) // serviços que faz (vazio = todos)
+  serviceIds        String[]            @default([]) // serviços que faz (vazio = todos)
   commissionPercent Int? // comissão sobre os atendimentos (para o fechamento)
-  active            Boolean     @default(true)
-  position          Int         @default(0)
+  active            Boolean             @default(true)
+  position          Int                 @default(0)
   orders            Order[]
   blocks            TimeBlock[]
-  createdAt         DateTime    @default(now())
+  calendar          CalendarConnection?
+  createdAt         DateTime            @default(now())
 
   @@index([storeId])
+}
+
+// Google Agenda conectado: da barbearia (professionalId vazio, recebe todos os atendimentos)
+// ou de um profissional (recebe só os dele). O WebTenda cria uma agenda própria na conta
+// Google e mantém os eventos nela (cria, muda e apaga junto com o agendamento).
+model CalendarConnection {
+  id              String          @id @default(cuid())
+  storeId         String
+  store           Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  professionalId  String?         @unique
+  professional    Professional?   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  googleEmail     String
+  refreshTokenEnc String // criptografado (secret-box)
+  calendarId      String? // agenda criada pelo WebTenda na conta Google
+  brokenAt        DateTime? // o Google recusou o acesso (desconectado lá): precisa conectar de novo
+  lastError       String?
+  lastErrorAt     DateTime?
+  events          CalendarEvent[]
+  createdAt       DateTime        @default(now())
+
+  @@index([storeId])
+}
+
+// Qual agendamento já está em qual Google Agenda (para atualizar e apagar depois).
+model CalendarEvent {
+  id            String             @id @default(cuid())
+  orderId       String
+  order         Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  connectionId  String
+  connection    CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  googleEventId String
+  updatedAt     DateTime           @updatedAt
+
+  @@unique([orderId, connectionId])
+  @@index([connectionId])
 }
 
 // Horário bloqueado na agenda (folga, compromisso, feriado de um profissional).

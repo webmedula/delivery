@@ -12,6 +12,7 @@ import { DEPOSIT_OPTIONS, brDateTime, normalizeTime, parseClosedDates } from "@/
 import { CANCEL_OPTIONS, MIN_NOTICE_OPTIONS, STEP_OPTIONS, canDo, confirmationMessage, totalDuration, validateBooking } from "@/lib/booking";
 import { activeProfessionals, busyPeriods, loadByProfessional } from "@/lib/booking-data";
 import { storeUrl } from "@/lib/store-url";
+import { queueCalendarSync } from "@/lib/google-calendar";
 
 function refresh() {
   revalidatePath("/painel/agenda");
@@ -34,6 +35,7 @@ export async function setAppointmentStatus(formData: FormData) {
     : {};
   if (Object.keys(data).length === 0) return;
   await db.order.update({ where: { id: order.id }, data });
+  await queueCalendarSync(order.id);
   refresh();
 }
 
@@ -130,6 +132,7 @@ export async function createAppointment(_: AgendaFormState, formData: FormData):
       if ("error" in result) return { error: result.error };
       refresh();
       const { order } = result;
+      await queueCalendarSync(order.id);
       const url = `${await storeUrl(store.slug)}/agendamento/${order.id}`;
       return {
         ok: true,

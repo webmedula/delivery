@@ -10,6 +10,7 @@ import { imageIdFromUrl } from "@/lib/image-url";
 import { deleteUnusedImages } from "@/lib/images";
 import { isValidPhone, normalizePhone } from "@/lib/phone";
 import { parseBreak, parseWorkHours } from "@/lib/booking";
+import { disconnectCalendar } from "@/lib/google-calendar";
 
 export type ProfessionalFormState = { error?: string; ok?: boolean; savedAt?: number } | undefined;
 
@@ -85,4 +86,11 @@ export async function deleteProfessional(formData: FormData) {
   await db.professional.delete({ where: { id: pro.id } });
   await deleteUnusedImages(storeId, [pro.photoUrl]);
   refresh(store.slug);
+}
+
+/** Desconecta o Google Agenda da barbearia ou de um profissional. */
+export async function disconnectGoogleCalendar(formData: FormData) {
+  const { storeId } = await requireStoreUser();
+  await disconnectCalendar(storeId, String(formData.get("id") ?? ""));
+  revalidatePath("/painel/profissionais");
 }
