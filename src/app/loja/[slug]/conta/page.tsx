@@ -6,6 +6,7 @@ import { formatBRL } from "@/lib/money";
 import { formatPhone } from "@/lib/phone";
 import { orderStatusLabelsFor } from "@/lib/order-status";
 import { describeDiscount } from "@/lib/discounts";
+import { formatAppointment } from "@/lib/booking";
 import { getLoyaltyStatus, getSessionCustomer } from "@/lib/customers";
 import { customerLogout, deleteCustomerAddress } from "../actions";
 import { CustomerLoginForm, CustomerPinForm, CustomerProfileForm, ReorderButton } from "@/components/CustomerAccount";
@@ -21,7 +22,8 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
   if (!store) notFound();
   const customer = await getSessionCustomer(store.id);
 
-  const back = <Link href={`/loja/${slug}`} className="text-sm text-brand-700">← Voltar ao cardápio</Link>;
+  const booking = store.businessType === "BOOKING";
+  const back = <Link href={`/loja/${slug}`} className="text-sm text-brand-700">← {booking ? "Voltar para a agenda" : "Voltar ao cardápio"}</Link>;
 
   if (!customer) {
     return (
@@ -29,8 +31,17 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
         {back}
         <h1 className="text-2xl font-bold">Minha conta · {store.name}</h1>
         <div className="card space-y-2 text-sm text-stone-700">
-          <p><strong>Primeira vez aqui?</strong> Não precisa de cadastro nem senha: faça seu pedido informando seu WhatsApp e a conta é criada na hora, já entrando neste aparelho.</p>
-          <p>Com a conta você guarda seus endereços, vê seus pedidos, pede de novo com um toque{store.loyaltyEnabled ? " e junta selos de fidelidade" : ""}.</p>
+          {booking ? (
+            <>
+              <p><strong>Primeira vez aqui?</strong> Não precisa de cadastro nem senha: agende informando seu WhatsApp e a conta é criada na hora, já entrando neste aparelho.</p>
+              <p>Com a conta você vê seus horários, cancela se precisar{store.loyaltyEnabled ? " e junta selos de fidelidade" : ""}.</p>
+            </>
+          ) : (
+            <>
+              <p><strong>Primeira vez aqui?</strong> Não precisa de cadastro nem senha: faça seu pedido informando seu WhatsApp e a conta é criada na hora, já entrando neste aparelho.</p>
+              <p>Com a conta você guarda seus endereços, vê seus pedidos, pede de novo com um toque{store.loyaltyEnabled ? " e junta selos de fidelidade" : ""}.</p>
+            </>
+          )}
         </div>
         <CustomerLoginForm slug={slug} storeWhatsapp={store.whatsapp} />
       </main>
@@ -38,7 +49,12 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
   }
 
   const [orders, addresses, loyalty, availableIds] = await Promise.all([
-    db.order.findMany({ where: { customerId: customer.id }, include: { items: true }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.order.findMany({
+      where: { customerId: customer.id },
+      include: { items: true },
+      orderBy: store.businessType === "BOOKING" ? { scheduledFor: "desc" } : { createdAt: "desc" },
+      take: 20,
+    }),
     db.customerAddress.findMany({ where: { customerId: customer.id }, orderBy: { lastUsedAt: "desc" } }),
     getLoyaltyStatus(store, customer.id),
     db.product.findMany({ where: { storeId: store.id, available: true }, select: { id: true } }).then((r) => new Set(r.map((p) => p.id))),
@@ -76,12 +92,30 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
           </div>
           <p className="text-sm text-stone-700">
             {loyalty.rewardAvailable
-              ? <>Parabéns! Você ganhou <strong>{describeDiscount({ type: store.loyaltyRewardType, value: store.loyaltyRewardValue })}</strong>. É só marcar na sacola do próximo pedido.</>
-              : <>A cada {loyalty.ordersRequired} pedidos concluídos{store.loyaltyMinOrderCents > 0 ? ` (a partir de ${formatBRL(store.loyaltyMinOrderCents)})` : ""}, você ganha {describeDiscount({ type: store.loyaltyRewardType, value: store.loyaltyRewardValue })}.</>}
+              ? <>Parabéns! Você ganhou <strong>{describeDiscount({ type: store.loyaltyRewardType, value: store.loyaltyRewardValue })}</strong>. {booking ? "É só marcar no próximo agendamento." : "É só marcar na sacola do próximo pedido."}</>
+              : <>A cada {loyalty.ordersRequired} {booking ? "atendimentos" : "pedidos concluídos"}{store.loyaltyMinOrderCents > 0 ? ` (a partir de ${formatBRL(store.loyaltyMinOrderCents)})` : ""}, você ganha {describeDiscount({ type: store.loyaltyRewardType, value: store.loyaltyRewardValue })}.</>}
           </p>
         </section>
       )}
 
+      {booking ? (
+        <section className="card space-y-3">
+          <h2 className="font-semibold">Meus horários</h2>
+          {orders.length === 0 && <p className="text-sm text-stone-500">Você ainda não agendou.</p>}
+          <ul className="divide-y divide-stone-100">
+            {orders.map((o) => (
+              <li key={o.id} className="py-3">
+                <Link href={`/loja/${slug}/agendamento/${o.id}`} className="block">
+                  <p className="text-sm font-medium first-letter:uppercase">{o.scheduledFor ? formatAppointment(o.scheduledFor) : dateFmt.format(o.createdAt)} · {formatBRL(o.totalCents)}</p>
+                  <p className="truncate text-sm text-stone-500">{o.items.map((i) => i.name).join(" + ")}{o.professionalName ? ` com ${o.professionalName.split(" ")[0]}` : ""}</p>
+                  <p className="text-xs text-stone-500">{o.noShowAt ? "Não compareceu" : orderStatusLabelsFor(store.businessType)[o.status]}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <>
       <section className="card space-y-3">
         <h2 className="font-semibold">Meus pedidos</h2>
         {orders.length === 0 && <p className="text-sm text-stone-500">Você ainda não fez pedidos.</p>}
@@ -100,9 +134,9 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
             </li>
           ))}
         </ul>
-      </section>
+        </section>
 
-      <section className="card space-y-3">
+        <section className="card space-y-3">
         <h2 className="font-semibold">Endereços salvos</h2>
         {addresses.length === 0 && <p className="text-sm text-stone-500">Os endereços das suas entregas aparecem aqui.</p>}
         <ul className="space-y-2">
@@ -117,7 +151,10 @@ export default async function AccountPage({ params }: { params: Promise<{ slug: 
             </li>
           ))}
         </ul>
-      </section>
+        </section>
+
+        </>
+      )}
 
       <section className="card space-y-3">
         <h2 className="font-semibold">Meus dados</h2>

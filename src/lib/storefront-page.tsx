@@ -10,6 +10,7 @@ import { onlineMethods } from "@/lib/payments";
 import { etaFor, formatMinutes } from "@/lib/delivery";
 import { modulesFor, termsFor } from "@/lib/niche";
 import { billSummary } from "@/lib/tables";
+import { renderBooking } from "@/lib/booking-page";
 import { availableDays, brDateOf, depositText, minHoursText } from "@/lib/preorder";
 
 /** Dias e horários livres para encomenda (descontando os dias que já lotaram). */
@@ -70,6 +71,11 @@ async function getTableWithBill(storeId: string, code: string) {
 export async function renderStore(slug: string, productId?: string, tableCode?: string) {
   const store = await getStore(slug);
   if (!store) notFound();
+  // Barbearia/salão: em vez do cardápio, a agenda online.
+  if (store.businessType === "BOOKING") {
+    if (productId || tableCode) notFound();
+    return renderBooking(store);
+  }
   const atTable = tableCode ? await getTableWithBill(store.id, tableCode) : null;
   if (tableCode && !atTable) notFound();
   if (atTable && !atTable.table.active) {

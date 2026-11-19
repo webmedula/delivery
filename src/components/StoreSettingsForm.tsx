@@ -10,16 +10,17 @@ type Values = {
   deliveryFee: string; minOrder: string; acceptsDelivery: boolean; acceptsPickup: boolean; isOpen: boolean;
   deliveryMinutesMin: string; deliveryMinutesMax: string; pickupMinutesMin: string; pickupMinutesMax: string;
   hasZones: boolean;
-  businessType: "FOOD" | "RETAIL" | "PREORDER"; whatsappCheckout: boolean;
+  businessType: "FOOD" | "RETAIL" | "PREORDER" | "BOOKING"; whatsappCheckout: boolean;
 };
 
 export function StoreSettingsForm({ store }: { store: Values }) {
   const [state, action, pending] = useActionState(updateStoreSettings, undefined);
   const [logo, setLogo] = useState<string[]>(store.logoUrl ? [store.logoUrl] : []);
+  const booking = store.businessType === "BOOKING";
   return (
     <form action={action} className="card space-y-4">
       <label className="flex items-center gap-2 text-sm font-medium">
-        <input type="checkbox" name="isOpen" defaultChecked={store.isOpen} /> Loja aberta para pedidos agora
+        <input type="checkbox" name="isOpen" defaultChecked={store.isOpen} /> {booking ? "Agenda aberta para novos agendamentos" : "Loja aberta para pedidos agora"}
       </label>
       <div>
         <label className="label" htmlFor="businessType">Tipo de negócio</label>
@@ -29,6 +30,9 @@ export function StoreSettingsForm({ store }: { store: Values }) {
         <p className="mt-1 text-xs text-stone-500">Muda os textos e os recursos do painel e do catálogo (ex.: cor, tamanho e estoque na loja de roupas).</p>
         {store.businessType === "PREORDER" && (
           <p className="mt-1 text-xs text-brand-700">Antecedência, dias, horários, limite por dia e sinal ficam em <a href="/painel/encomendas" className="font-medium underline">Agenda</a>.</p>
+        )}
+        {booking && (
+          <p className="mt-1 text-xs text-brand-700">Horários de cada profissional ficam em <a href="/painel/profissionais" className="font-medium underline">Profissionais</a>; antecedência, cancelamento e sinal, em <a href="/painel/agenda#regras" className="font-medium underline">Agenda</a>.</p>
         )}
       </div>
       <div><label className="label">Nome</label><input name="name" defaultValue={store.name} className="input" required /></div>
@@ -49,6 +53,13 @@ export function StoreSettingsForm({ store }: { store: Values }) {
         </div>
       </div>
       <div><label className="label">Endereço</label><input name="address" defaultValue={store.address} className="input" /></div>
+      {booking ? (
+        <>
+          <input type="hidden" name="deliveryFee" value={store.deliveryFee} />
+          <input type="hidden" name="minOrder" value={store.minOrder} />
+          <input type="hidden" name="acceptsPickup" value="on" />
+        </>
+      ) : <>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="label">Taxa de entrega (R$)</label>
@@ -86,6 +97,7 @@ export function StoreSettingsForm({ store }: { store: Values }) {
         <label className="flex items-center gap-2"><input type="checkbox" name="acceptsDelivery" defaultChecked={store.acceptsDelivery} /> Entrega</label>
         <label className="flex items-center gap-2"><input type="checkbox" name="acceptsPickup" defaultChecked={store.acceptsPickup} /> Retirada</label>
       </div>
+      </>}
       {state?.error && <p className="text-sm text-red-600">{state.error}</p>}
       {state?.ok && <p className="text-sm text-green-700">Salvo.</p>}
       <button className="btn" disabled={pending}>{pending ? "Salvando..." : "Salvar"}</button>

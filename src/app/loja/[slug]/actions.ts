@@ -1,6 +1,6 @@
 "use server";
 
-import { Prisma, type Store } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -9,7 +9,7 @@ import { quoteOrder } from "@/lib/order-calc";
 import { canTakeOrders } from "@/lib/subscription";
 import { parseBRLToCents } from "@/lib/money";
 import { isValidPhone, normalizePhone } from "@/lib/phone";
-import { checkCoupon, discountCents, normalizeCouponCode, type CouponCheck } from "@/lib/discounts";
+import { discountCents } from "@/lib/discounts";
 import { cancelAwaitingOrder, createOrderPayment, onlineMethods } from "@/lib/payments";
 import { normalizeCpfCnpj } from "@/lib/cpf-cnpj";
 import { MIN_ONLINE_PAYMENT_CENTS } from "@/lib/payment-events";
@@ -22,6 +22,7 @@ import { brDateTime, depositFor, validateSchedule } from "@/lib/preorder";
 import { storeUrl } from "@/lib/store-url";
 import { activeCall, isCallKind } from "@/lib/tables";
 import { clearCustomerSession, getLoyaltyStatus, getSessionCustomer, setCustomerSession } from "@/lib/customers";
+import { evaluateCoupon, resolveCustomer } from "@/lib/order-customer";
 
 const schema = z.object({
   slug: z.string(),
@@ -67,29 +68,6 @@ async function countScheduledOn(storeId: string, date: string) {
 export type PlaceOrderResult =
   | { ok: true; orderId: string; /** Pedido para fechar no WhatsApp: abrir este link com a mensagem pronta. */ whatsappUrl?: string }
   | { ok: false; error: string };
-
-/** Valida um cupom para a loja e o cliente (customerId null = cliente novo). */
-async function evaluateCoupon(storeId: string, rawCode: string, customerId: string | null, subtotalCents: number) {
-  const code = normalizeCouponCode(rawCode);
-  const coupon = await db.coupon.findUnique({ where: { storeId_code: { storeId, code } } });
-  if (!coupon) return { coupon: null, check: { ok: false, error: "Cupom inválido." } as CouponCheck };
-  const notCanceled = { status: { not: "CANCELED" as const } };
-  const [totalUses, customerUses, customerOrders] = await Promise.all([
-    db.order.count({ where: { couponId: coupon.id, ...notCanceled } }),
-    customerId ? db.order.count({ where: { couponId: coupon.id, customerId, ...notCanceled } }) : 0,
-    customerId ? db.order.count({ where: { customerId, ...notCanceled } }) : 0,
-  ]);
-  return { coupon, check: checkCoupon(coupon, { totalUses, customerUses, customerOrders }, subtotalCents) };
-}
-
-/** Cliente do pedido. `trusted` = este aparelho está logado como esse cliente. */
-async function resolveCustomer(store: Store, phone: string) {
-  const session = await getSessionCustomer(store.id);
-  if (session && session.phone === phone) return { customer: session, trusted: true, isNew: false };
-  const existing = await db.customer.findUnique({ where: { storeId_phone: { storeId: store.id, phone } } });
-  if (existing) return { customer: existing, trusted: false, isNew: false };
-  return { customer: null, trusted: true, isNew: true };
-}
 
 export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOrderResult> {
   const parsed = schema.safeParse(input);

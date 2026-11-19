@@ -23,6 +23,8 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
   const loyalty = await getLoyaltyStatus(store, customer.id);
   const valid = customer.orders.filter((o) => o.status !== "CANCELED");
   const total = valid.reduce((s, o) => s + o.totalCents, 0);
+  const booking = store.businessType === "BOOKING";
+  const noShows = customer.orders.filter((o) => o.noShowAt).length;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -53,7 +55,10 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="card"><p className="text-sm text-stone-500">Pedidos</p><p className="text-2xl font-bold">{valid.length}</p></div>
+        <div className="card">
+          <p className="text-sm text-stone-500">{booking ? "Atendimentos" : "Pedidos"}</p>
+          <p className="text-2xl font-bold">{valid.length}{booking && noShows > 0 && <span className="ml-2 text-sm font-semibold text-red-600">· faltou {noShows}x</span>}</p>
+        </div>
         <div className="card"><p className="text-sm text-stone-500">Total gasto</p><p className="text-2xl font-bold">{formatBRL(total)}</p></div>
         <div className="card">
           <p className="text-sm text-stone-500">{loyalty ? "Fidelidade" : "Ticket médio"}</p>
@@ -69,13 +74,15 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         </div>
       )}
       <div className="card p-0">
-        <h2 className="px-5 pt-4 font-semibold">Pedidos</h2>
+        <h2 className="px-5 pt-4 font-semibold">{booking ? "Horários" : "Pedidos"}</h2>
         <ul className="divide-y divide-stone-100">
           {customer.orders.map((o) => (
             <li key={o.id} className="flex flex-wrap items-baseline justify-between gap-2 px-5 py-3 text-sm">
               <div>
-                <p className="font-medium">#{o.number} · {dateFmt.format(o.createdAt)} · {orderStatusLabelsFor(store.businessType)[o.status]}</p>
-                <p className="text-stone-500">{o.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
+                <p className="font-medium">#{o.number} · {dateFmt.format(o.scheduledFor ?? o.createdAt)} · {o.noShowAt ? "Não veio" : orderStatusLabelsFor(store.businessType)[o.status]}</p>
+                <p className="text-stone-500">
+                  {o.fulfillment === "APPOINTMENT" ? o.items.map((i) => i.name).join(" + ") + (o.professionalName ? ` · ${o.professionalName}` : "") : o.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}
+                </p>
                 {o.discountCents > 0 && <p className="text-green-700">−{formatBRL(o.discountCents)} {o.loyaltyReward ? "(fidelidade)" : `(cupom ${o.couponCode})`}</p>}
               </div>
               <span className="font-semibold">{formatBRL(o.totalCents)}</span>

@@ -25,8 +25,8 @@ enum SubscriptionStatus {
 }
 
 enum OrderStatus {
-  PENDING    // recebido
-  CONFIRMED  // aceito pela loja
+  PENDING // recebido
+  CONFIRMED // aceito pela loja
   PREPARING
   OUT_FOR_DELIVERY
   READY_FOR_PICKUP
@@ -38,111 +38,123 @@ enum FulfillmentType {
   DELIVERY
   PICKUP
   SHIPPING // envio pelos Correios ou transportadora, com frete por estado
-  TABLE    // pedido feito na mesa, pelo QR code da mesa (sem endereço)
+  TABLE // pedido feito na mesa, pelo QR code da mesa (sem endereço)
+  APPOINTMENT // horário marcado (barbearia, salão): atendimento no local, com profissional
 }
 
 enum DiscountType {
   PERCENT // valor = porcentagem (1 a 100)
-  FIXED   // valor = centavos
+  FIXED // valor = centavos
 }
 
 // Tipo de negócio da loja: decide quais módulos o painel e o catálogo mostram (src/lib/niche.ts).
 enum BusinessType {
-  FOOD    // restaurante, lanchonete, açaí, pizzaria (delivery)
-  RETAIL  // loja de roupas, calçados e acessórios
+  FOOD // restaurante, lanchonete, açaí, pizzaria (delivery)
+  RETAIL // loja de roupas, calçados e acessórios
   PREORDER // encomendas: bolos, doces, salgados para festa, marmitas da semana (data marcada)
+  BOOKING // barbearia e salão: agendamento de horários com profissional (src/lib/booking.ts)
 }
 
 enum PaymentMethod {
-  WHATSAPP         // pagamento combinado com a loja na conversa do WhatsApp
-  PIX              // Pix pela chave da loja (conferência manual)
+  WHATSAPP // pagamento combinado com a loja na conversa do WhatsApp
+  PIX // Pix pela chave da loja (conferência manual)
   CASH
   CARD_ON_DELIVERY
-  ONLINE_PIX       // Pix pago no cardápio, pela subconta Asaas da loja
-  ONLINE_CARD      // cartão de crédito pago no cardápio, pela subconta Asaas da loja
-  TAB              // pedido na mesa: entra na conta da mesa, paga ao fechar a conta
+  ONLINE_PIX // Pix pago no cardápio, pela subconta Asaas da loja
+  ONLINE_CARD // cartão de crédito pago no cardápio, pela subconta Asaas da loja
+  TAB // pedido na mesa: entra na conta da mesa, paga ao fechar a conta
+  IN_PERSON // agendamento: paga no local, no dia do atendimento
 }
 
 // Situação do pagamento online do pedido. Pedidos pagos na entrega ficam NONE.
 enum PaymentStatus {
   NONE
-  AWAITING  // cobrança gerada, esperando o cliente pagar
+  AWAITING // cobrança gerada, esperando o cliente pagar
   PAID
-  EXPIRED   // venceu sem pagamento (o pedido é cancelado)
+  EXPIRED // venceu sem pagamento (o pedido é cancelado)
   REFUNDED
-  FAILED    // não deu para gerar a cobrança
+  FAILED // não deu para gerar a cobrança
 }
 
 model Plan {
-  id               String   @id @default(cuid())
-  code             String   @unique
-  name             String
-  priceCents       Int
-  maxProducts      Int      // limite de produtos no cardápio (0 = ilimitado)
-  maxOrdersMonth   Int      // limite de pedidos/mês (0 = ilimitado)
-  active           Boolean  @default(true)
-  stores           Store[]
-  createdAt        DateTime @default(now())
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  priceCents     Int
+  maxProducts    Int // limite de produtos no cardápio (0 = ilimitado)
+  maxOrdersMonth Int // limite de pedidos/mês (0 = ilimitado)
+  active         Boolean  @default(true)
+  stores         Store[]
+  createdAt      DateTime @default(now())
 }
 
 model Store {
-  id                 String             @id @default(cuid())
-  slug               String             @unique
-  name               String
-  description        String?
-  whatsapp           String?            // só dígitos, com DDI: 5511999999999
-  address            String?
-  logoUrl            String?
-  themeColor         String?            // cor do cardápio, ex.: #ea580c (vazio = laranja WebTenda)
-  isOpen             Boolean            @default(true)
-  businessType       BusinessType       @default(FOOD)
+  id                     String           @id @default(cuid())
+  slug                   String           @unique
+  name                   String
+  description            String?
+  whatsapp               String? // só dígitos, com DDI: 5511999999999
+  address                String?
+  logoUrl                String?
+  themeColor             String? // cor do cardápio, ex.: #ea580c (vazio = laranja WebTenda)
+  isOpen                 Boolean          @default(true)
+  businessType           BusinessType     @default(FOOD)
   // "Finalizar pelo WhatsApp": o pedido é registrado e o cliente manda a mensagem pronta para a loja,
   // que combina pagamento e entrega na conversa.
-  whatsappCheckout   Boolean            @default(false)
-  deliveryFeeCents   Int                @default(0)
-  minOrderCents      Int                @default(0)
-  acceptsDelivery    Boolean            @default(true)
-  acceptsPickup      Boolean            @default(true)
-  pixKey             String?
+  whatsappCheckout       Boolean          @default(false)
+  deliveryFeeCents       Int              @default(0)
+  minOrderCents          Int              @default(0)
+  acceptsDelivery        Boolean          @default(true)
+  acceptsPickup          Boolean          @default(true)
+  pixKey                 String?
   // Tempo estimado mostrado ao cliente, em minutos (vazio = não mostra).
-  deliveryMinutesMin Int?
-  deliveryMinutesMax Int?
-  pickupMinutesMin   Int?
-  pickupMinutesMax   Int?
-  deliveryZones      DeliveryZone[]
-  couriers           Courier[]
+  deliveryMinutesMin     Int?
+  deliveryMinutesMax     Int?
+  pickupMinutesMin       Int?
+  pickupMinutesMax       Int?
+  deliveryZones          DeliveryZone[]
+  couriers               Courier[]
   // Envio para outras cidades (Correios/transportadora). Frete pela tabela de ShippingMethod.
   acceptsShipping        Boolean          @default(false)
-  shippingOriginUf       String?          // estado de onde a loja envia, ex.: "SP" (vale o preço "mesmo estado")
-  shippingFreeAboveCents Int?             // frete grátis no envio mais barato a partir deste subtotal
+  shippingOriginUf       String? // estado de onde a loja envia, ex.: "SP" (vale o preço "mesmo estado")
+  shippingFreeAboveCents Int? // frete grátis no envio mais barato a partir deste subtotal
   shippingMethods        ShippingMethod[]
   images                 StoredImage[]
   // Encomendas (tipo PREORDER): o cliente escolhe dia e horário. Regras em src/lib/preorder.ts.
-  preorderMinHours       Int      @default(48)  // antecedência mínima, em horas
-  preorderMaxDays        Int      @default(30)  // aceita encomendas até quantos dias à frente
-  preorderWeekdays       Int[]    @default([2, 3, 4, 5, 6]) // dias da semana que entrega (0 = domingo)
-  preorderTimes          String[] @default(["09:00", "11:00", "14:00", "16:00", "18:00"]) // horários oferecidos
-  preorderDailyLimit     Int?     // máximo de encomendas por dia (vazio = sem limite)
-  preorderClosedDates    String[] @default([]) // dias sem encomenda, ex.: "2026-12-25"
-  depositPercent         Int      @default(0)   // sinal cobrado no pedido (0 = sem sinal, 100 = tudo antecipado)
+  preorderMinHours       Int              @default(48) // antecedência mínima, em horas
+  preorderMaxDays        Int              @default(30) // aceita encomendas até quantos dias à frente
+  preorderWeekdays       Int[]            @default([2, 3, 4, 5, 6]) // dias da semana que entrega (0 = domingo)
+  preorderTimes          String[]         @default(["09:00", "11:00", "14:00", "16:00", "18:00"]) // horários oferecidos
+  preorderDailyLimit     Int? // máximo de encomendas por dia (vazio = sem limite)
+  preorderClosedDates    String[]         @default([]) // dias sem encomenda, ex.: "2026-12-25"
+  depositPercent         Int              @default(0) // sinal cobrado no pedido (0 = sem sinal, 100 = tudo antecipado)
   diningTables           DiningTable[]
+  // Agendamento (tipo BOOKING): o cliente escolhe serviço, profissional, dia e horário.
+  // O sinal usa depositPercent. Regras em src/lib/booking.ts.
+  bookingStepMinutes     Int              @default(30) // de quanto em quanto tempo os horários começam (15, 20, 30, 60)
+  bookingMinMinutes      Int              @default(60) // antecedência mínima para marcar, em minutos
+  bookingMaxDays         Int              @default(30) // agenda aberta até quantos dias à frente
+  bookingCancelHours     Int              @default(2) // cliente pode cancelar pelo link até X horas antes
+  bookingClosedDates     String[]         @default([]) // feriados e dias sem atendimento, ex.: "2026-12-25"
+  professionals          Professional[]
+  timeBlocks             TimeBlock[]
 
-  planId             String
-  plan               Plan               @relation(fields: [planId], references: [id])
-  subscriptionStatus SubscriptionStatus @default(TRIALING)
-  trialEndsAt        DateTime?
-  currentPeriodEnd   DateTime?
-  cpfCnpj               String?         // só dígitos; exigido pelo Asaas para cobrar
-  billingCustomerId     String?         // id do cliente no Asaas (cus_...)
-  billingSubscriptionId String? @unique // id da assinatura no Asaas (sub_...)
+  planId                String
+  plan                  Plan               @relation(fields: [planId], references: [id])
+  subscriptionStatus    SubscriptionStatus @default(TRIALING)
+  trialEndsAt           DateTime?
+  currentPeriodEnd      DateTime?
+  cpfCnpj               String? // só dígitos; exigido pelo Asaas para cobrar
+  billingCustomerId     String? // id do cliente no Asaas (cus_...)
+  billingSubscriptionId String?            @unique // id da assinatura no Asaas (sub_...)
 
   // Bloqueio manual feito pelo administrador da plataforma (independe da assinatura).
-  blockedAt          DateTime?
-  blockedReason      String?
+  blockedAt     DateTime?
+  blockedReason String?
 
   // Loja de demonstração (prisma/demo.ts): não cobra assinatura, não liga
   // pagamento online e fica fora dos números da administração.
-  isDemo             Boolean            @default(false)
+  isDemo Boolean @default(false)
 
   // Programa de fidelidade: a cada N pedidos concluídos, o cliente ganha um desconto.
   loyaltyEnabled        Boolean      @default(false)
@@ -153,22 +165,22 @@ model Store {
 
   // Pagamento online: cada loja tem a própria subconta no Asaas, criada pela
   // plataforma. O dinheiro cai direto nela; a WebTenda não fica com nada.
-  asaasAccountId        String?   @unique
-  asaasWalletId         String?
-  asaasApiKeyEnc        String?   // chave da subconta, criptografada (lib/secret-box)
-  asaasAccountStatus    String?   // situação geral no Asaas: PENDING, AWAITING_APPROVAL, APPROVED, REJECTED
-  onlinePixEnabled      Boolean   @default(false)
-  onlineCardEnabled     Boolean   @default(false)
+  asaasAccountId     String? @unique
+  asaasWalletId      String?
+  asaasApiKeyEnc     String? // chave da subconta, criptografada (lib/secret-box)
+  asaasAccountStatus String? // situação geral no Asaas: PENDING, AWAITING_APPROVAL, APPROVED, REJECTED
+  onlinePixEnabled   Boolean @default(false)
+  onlineCardEnabled  Boolean @default(false)
 
-  users              User[]
-  customers          Customer[]
-  coupons            Coupon[]
-  campaigns          Campaign[]
-  categories         Category[]
-  products           Product[]
-  orders             Order[]
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  users      User[]
+  customers  Customer[]
+  coupons    Coupon[]
+  campaigns  Campaign[]
+  categories Category[]
+  products   Product[]
+  orders     Order[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 }
 
 model User {
@@ -185,35 +197,37 @@ model User {
 }
 
 model Category {
-  id        String    @id @default(cuid())
-  storeId   String
-  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  name      String
-  position  Int       @default(0)
-  products  Product[]
+  id       String    @id @default(cuid())
+  storeId  String
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name     String
+  position Int       @default(0)
+  products Product[]
 
   @@index([storeId])
 }
 
 model Product {
-  id          String      @id @default(cuid())
-  storeId     String
-  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  categoryId  String?
-  category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  name        String
-  description String?
-  priceCents  Int
-  imageUrl    String?
-  images      String[]    @default([]) // fotos extras (a primeira é imageUrl)
-  compareAtCents Int?                  // preço "de" (riscado) quando está em promoção
+  id              String           @id @default(cuid())
+  storeId         String
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId      String?
+  category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name            String
+  description     String?
+  priceCents      Int
+  imageUrl        String?
+  images          String[]         @default([]) // fotos extras (a primeira é imageUrl)
+  compareAtCents  Int? // preço "de" (riscado) quando está em promoção
   // Estoque do produto sem variações (null = não controla). Com variações, vale o de cada variação.
-  stock       Int?
-  available   Boolean     @default(true)
-  position    Int         @default(0)
-  variants    ProductVariant[]
-  orderItems  OrderItem[]
-  createdAt   DateTime    @default(now())
+  stock           Int?
+  // Serviço de agendamento (barbearia, salão): quanto tempo ocupa na agenda.
+  durationMinutes Int?
+  available       Boolean          @default(true)
+  position        Int              @default(0)
+  variants        ProductVariant[]
+  orderItems      OrderItem[]
+  createdAt       DateTime         @default(now())
 
   @@index([storeId])
 }
@@ -224,10 +238,10 @@ model ProductVariant {
   storeId    String
   productId  String
   product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  color      String?     // nome da cor, ex.: "Azul"
-  size       String?     // ex.: "M", "38"
-  stock      Int?        // null = não controla estoque
-  priceCents Int?        // null = preço do produto
+  color      String? // nome da cor, ex.: "Azul"
+  size       String? // ex.: "M", "38"
+  stock      Int? // null = não controla estoque
+  priceCents Int? // null = preço do produto
   position   Int         @default(0)
   active     Boolean     @default(true)
   orderItems OrderItem[]
@@ -237,71 +251,79 @@ model ProductVariant {
 }
 
 model Order {
-  id               String          @id @default(cuid())
-  storeId          String
-  store            Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  number           Int             // sequencial por loja, mostrado ao cliente
-  status           OrderStatus     @default(PENDING)
-  fulfillment      FulfillmentType
-  paymentMethod    PaymentMethod
-  changeForCents   Int?            // troco para (dinheiro)
-  customerId       String?
-  customer         Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  customerName     String
-  customerPhone    String
-  address          String?
-  notes            String?
-  subtotalCents    Int
-  deliveryFeeCents Int
-  discountCents    Int             @default(0)
-  couponId         String?
-  coupon           Coupon?         @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  couponCode       String?         // cópia do código no momento do pedido
-  loyaltyReward    Boolean         @default(false) // usou a recompensa de fidelidade
-  totalCents       Int
-  paymentStatus    PaymentStatus   @default(NONE)
-  paymentId        String?         @unique // cobrança no Asaas (pay_...)
-  paymentUrl       String?         // fatura do Asaas (usada para pagar com cartão)
-  paidAt           DateTime?
+  id                  String          @id @default(cuid())
+  storeId             String
+  store               Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  number              Int // sequencial por loja, mostrado ao cliente
+  status              OrderStatus     @default(PENDING)
+  fulfillment         FulfillmentType
+  paymentMethod       PaymentMethod
+  changeForCents      Int? // troco para (dinheiro)
+  customerId          String?
+  customer            Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName        String
+  customerPhone       String
+  address             String?
+  notes               String?
+  subtotalCents       Int
+  deliveryFeeCents    Int
+  discountCents       Int             @default(0)
+  couponId            String?
+  coupon              Coupon?         @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponCode          String? // cópia do código no momento do pedido
+  loyaltyReward       Boolean         @default(false) // usou a recompensa de fidelidade
+  totalCents          Int
+  paymentStatus       PaymentStatus   @default(NONE)
+  paymentId           String?         @unique // cobrança no Asaas (pay_...)
+  paymentUrl          String? // fatura do Asaas (usada para pagar com cartão)
+  paidAt              DateTime?
   // Bairro escolhido (quando a loja cobra taxa por bairro). Nome copiado no momento do pedido.
-  deliveryZoneId   String?
-  deliveryZone     DeliveryZone?   @relation(fields: [deliveryZoneId], references: [id], onDelete: SetNull)
-  deliveryZoneName String?
+  deliveryZoneId      String?
+  deliveryZone        DeliveryZone?   @relation(fields: [deliveryZoneId], references: [id], onDelete: SetNull)
+  deliveryZoneName    String?
   // Previsão em minutos a partir da criação, copiada da loja no momento do pedido.
-  etaMinutesMin    Int?
-  etaMinutesMax    Int?
+  etaMinutesMin       Int?
+  etaMinutesMax       Int?
   // Quando o pedido passou por cada etapa (para histórico e tempo médio).
   // Entregador que leva o pedido (nome copiado para o histórico continuar certo se ele for excluído).
-  courierId        String?
-  courier          Courier?        @relation(fields: [courierId], references: [id], onDelete: SetNull)
-  courierName      String?
-  acceptedAt       DateTime?
-  dispatchedAt     DateTime?       // saiu para entrega / ficou pronto para retirar
-  completedAt      DateTime?
-  canceledAt       DateTime?
+  courierId           String?
+  courier             Courier?        @relation(fields: [courierId], references: [id], onDelete: SetNull)
+  courierName         String?
+  acceptedAt          DateTime?
+  dispatchedAt        DateTime? // saiu para entrega / ficou pronto para retirar
+  completedAt         DateTime?
+  canceledAt          DateTime?
   // O estoque dos itens foi descontado quando o pedido entrou, e devolvido se ele for cancelado.
-  stockReserved    Boolean         @default(false)
+  stockReserved       Boolean         @default(false)
   // Envio (fulfillment SHIPPING): forma escolhida, copiada no momento do pedido, e o rastreio.
-  shippingMethodId   String?
-  shippingMethod     ShippingMethod? @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
-  shippingMethodName String?
-  shippingCep        String?         // só dígitos
-  shippingUf         String?
-  shippingDaysMin    Int?
-  shippingDaysMax    Int?
-  trackingCode       String?
+  shippingMethodId    String?
+  shippingMethod      ShippingMethod? @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
+  shippingMethodName  String?
+  shippingCep         String? // só dígitos
+  shippingUf          String?
+  shippingDaysMin     Int?
+  shippingDaysMax     Int?
+  trackingCode        String?
   // Encomenda: dia e hora marcados para retirar/entregar, e o sinal (o resto é pago na retirada).
-  scheduledFor       DateTime?
-  depositCents       Int?
-  depositPaidAt      DateTime?       // sinal confirmado (online pelo Asaas ou marcado pela loja)
+  scheduledFor        DateTime?
+  depositCents        Int?
+  depositPaidAt       DateTime? // sinal confirmado (online pelo Asaas ou marcado pela loja)
   // Pedido na mesa (fulfillment TABLE): mesa do QR code (nome copiado) e quando a conta da mesa foi fechada.
-  tableId            String?
-  table              DiningTable?    @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  tableLabel         String?
-  billClosedAt       DateTime?
-  items            OrderItem[]
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  tableId             String?
+  table               DiningTable?    @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableLabel          String?
+  billClosedAt        DateTime?
+  // Agendamento (fulfillment APPOINTMENT): começa em scheduledFor e termina em endsAt, com o profissional.
+  professionalId      String?
+  professional        Professional?   @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  professionalName    String?
+  endsAt              DateTime?
+  customerConfirmedAt DateTime? // o cliente confirmou presença pelo link do lembrete
+  reminderSentAt      DateTime? // a loja mandou o lembrete pelo WhatsApp
+  noShowAt            DateTime? // o cliente não compareceu (o agendamento fica cancelado)
+  items               OrderItem[]
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
 
   @@unique([storeId, number])
   @@index([storeId, createdAt])
@@ -311,6 +333,7 @@ model Order {
   @@index([courierId])
   @@index([storeId, scheduledFor])
   @@index([tableId, billClosedAt])
+  @@index([professionalId, scheduledFor])
 }
 
 // Bairro atendido e sua taxa de entrega. Se a loja tem bairros, o cliente escolhe um na sacola
@@ -331,22 +354,22 @@ model DeliveryZone {
 // Forma de envio da loja (ex.: PAC, SEDEX, transportadora) com o preço por destino.
 // Preço vazio = não envia para aquela região. "Mesmo estado" vale antes da região.
 model ShippingMethod {
-  id                String   @id @default(cuid())
-  storeId           String
-  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  name              String
-  sameStateCents    Int?
-  southeastCents    Int?
-  southCents        Int?
-  midwestCents      Int?
-  northeastCents    Int?
-  northCents        Int?
-  daysMin           Int?     // prazo em dias úteis
-  daysMax           Int?
-  active            Boolean  @default(true)
-  position          Int      @default(0)
-  orders            Order[]
-  createdAt         DateTime @default(now())
+  id             String   @id @default(cuid())
+  storeId        String
+  store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name           String
+  sameStateCents Int?
+  southeastCents Int?
+  southCents     Int?
+  midwestCents   Int?
+  northeastCents Int?
+  northCents     Int?
+  daysMin        Int? // prazo em dias úteis
+  daysMax        Int?
+  active         Boolean  @default(true)
+  position       Int      @default(0)
+  orders         Order[]
+  createdAt      DateTime @default(now())
 
   @@index([storeId])
 }
@@ -373,7 +396,7 @@ model Courier {
   storeId   String
   store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   name      String
-  phone     String   // mesmo formato de Customer.phone: DDD + número, sem 55
+  phone     String // mesmo formato de Customer.phone: DDD + número, sem 55
   active    Boolean  @default(true)
   token     String   @unique
   orders    Order[]
@@ -388,7 +411,7 @@ model DiningTable {
   id        String    @id @default(cuid())
   storeId   String
   store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  label     String    // ex.: "Mesa 5", "Varanda 2", "Balcão"
+  label     String // ex.: "Mesa 5", "Varanda 2", "Balcão"
   code      String    @unique // código aleatório do QR (trocar invalida o QR antigo)
   active    Boolean   @default(true)
   position  Int       @default(0)
@@ -402,17 +425,57 @@ model DiningTable {
   @@index([storeId])
 }
 
+// Profissional da barbearia/salão. Tem os próprios dias e horários de trabalho e
+// pode fazer só alguns serviços. O cliente escolhe com quem quer ser atendido.
+model Professional {
+  id                String      @id @default(cuid())
+  storeId           String
+  store             Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name              String
+  phone             String? // mesmo formato de Customer.phone
+  photoUrl          String?
+  // Expediente de cada dia da semana (0 = domingo): "09:00-19:00" ou "" para folga.
+  workHours         String[]    @default(["", "09:00-19:00", "09:00-19:00", "09:00-19:00", "09:00-19:00", "09:00-19:00", "08:00-14:00"])
+  breakStart        String? // intervalo de almoço, ex.: "12:00"
+  breakEnd          String?
+  serviceIds        String[]    @default([]) // serviços que faz (vazio = todos)
+  commissionPercent Int? // comissão sobre os atendimentos (para o fechamento)
+  active            Boolean     @default(true)
+  position          Int         @default(0)
+  orders            Order[]
+  blocks            TimeBlock[]
+  createdAt         DateTime    @default(now())
+
+  @@index([storeId])
+}
+
+// Horário bloqueado na agenda (folga, compromisso, feriado de um profissional).
+// Sem profissional, bloqueia a agenda de todos.
+model TimeBlock {
+  id             String        @id @default(cuid())
+  storeId        String
+  store          Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  professionalId String?
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+  createdAt      DateTime      @default(now())
+
+  @@index([storeId, startsAt])
+}
+
 model OrderItem {
-  id             String  @id @default(cuid())
+  id             String          @id @default(cuid())
   orderId        String
-  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId      String?
-  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  product        Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   variantId      String?
   variant        ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
   variantLabel   String? // cópia da cor/tamanho, ex.: "Azul · M"
-  name           String  // cópia do nome no momento do pedido (com a variação, ex.: "Vestido Floral (Azul · M)")
-  unitPriceCents Int     // cópia do preço no momento do pedido
+  name           String // cópia do nome no momento do pedido (com a variação, ex.: "Vestido Floral (Azul · M)")
+  unitPriceCents Int // cópia do preço no momento do pedido
   quantity       Int
   notes          String?
 }
@@ -440,24 +503,24 @@ model AdminLog {
 // Cliente final de uma loja. Cada loja tem a sua base de clientes (o mesmo
 // telefone em duas lojas são dois registros). Identificado pelo telefone.
 model Customer {
-  id              String            @id @default(cuid())
-  storeId         String
-  store           Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  phone           String            // só dígitos, com DDD e sem o 55: 11999999999
-  name            String
-  marketingOptIn  Boolean           @default(false) // aceitou receber promoções
-  cpfCnpj         String?           // informado ao pagar online (o Asaas exige)
-  asaasCustomerId String?           // cliente na subconta Asaas da loja
-  pinHash         String?           // PIN opcional para entrar em outro aparelho
-  pinFailures     Int               @default(0)
-  pinLockedUntil  DateTime?
-  loginCodeHash      String?   // código de acesso de uso único, enviado pela loja no WhatsApp
+  id                 String              @id @default(cuid())
+  storeId            String
+  store              Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  phone              String // só dígitos, com DDD e sem o 55: 11999999999
+  name               String
+  marketingOptIn     Boolean             @default(false) // aceitou receber promoções
+  cpfCnpj            String? // informado ao pagar online (o Asaas exige)
+  asaasCustomerId    String? // cliente na subconta Asaas da loja
+  pinHash            String? // PIN opcional para entrar em outro aparelho
+  pinFailures        Int                 @default(0)
+  pinLockedUntil     DateTime?
+  loginCodeHash      String? // código de acesso de uso único, enviado pela loja no WhatsApp
   loginCodeExpiresAt DateTime?
-  addresses       CustomerAddress[]
-  orders          Order[]
-  campaignSends   CampaignRecipient[]
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  addresses          CustomerAddress[]
+  orders             Order[]
+  campaignSends      CampaignRecipient[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@unique([storeId, phone])
 }
@@ -474,21 +537,21 @@ model CustomerAddress {
 }
 
 model Coupon {
-  id               String       @id @default(cuid())
-  storeId          String
-  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  code             String       // sempre em maiúsculas
-  type             DiscountType
-  value            Int
-  minOrderCents    Int          @default(0)
-  maxUses          Int          @default(0) // 0 = ilimitado
-  oncePerCustomer  Boolean      @default(true)
-  firstOrderOnly   Boolean      @default(false)
-  expiresAt        DateTime?
-  active           Boolean      @default(true)
-  orders           Order[]
-  campaigns        Campaign[]
-  createdAt        DateTime     @default(now())
+  id              String       @id @default(cuid())
+  storeId         String
+  store           Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  code            String // sempre em maiúsculas
+  type            DiscountType
+  value           Int
+  minOrderCents   Int          @default(0)
+  maxUses         Int          @default(0) // 0 = ilimitado
+  oncePerCustomer Boolean      @default(true)
+  firstOrderOnly  Boolean      @default(false)
+  expiresAt       DateTime?
+  active          Boolean      @default(true)
+  orders          Order[]
+  campaigns       Campaign[]
+  createdAt       DateTime     @default(now())
 
   @@unique([storeId, code])
 }
@@ -501,8 +564,8 @@ model Campaign {
   storeId    String
   store      Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
   name       String
-  message    String              // modelo com {nome}, {loja}, {link}, {cupom}
-  audience   String              // all | inactive | new | reward
+  message    String // modelo com {nome}, {loja}, {link}, {cupom}
+  audience   String // all | inactive | new | reward
   couponId   String?
   coupon     Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
   recipients CampaignRecipient[]

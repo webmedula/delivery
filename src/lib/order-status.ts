@@ -13,6 +13,7 @@ export const paymentLabel: Record<PaymentMethod, string> = {
   ONLINE_PIX: "Pix online",
   ONLINE_CARD: "Cartão de crédito online",
   TAB: "Na conta da mesa",
+  IN_PERSON: "Pagar no local",
 };
 
 export const paymentStatusLabel: Record<PaymentStatus, string> = {

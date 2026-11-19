@@ -56,20 +56,24 @@ export async function deleteUnusedImages(storeId: string, before: (string | null
   const ids = [...new Set(before.map(imageIdFromUrl).filter((id): id is string => !!id))];
   if (ids.length === 0) return;
   const urls = ids.map(storedImageUrl);
-  const [products, store] = await Promise.all([
+  const [products, store, pros] = await Promise.all([
     db.product.findMany({
       where: { storeId, OR: [{ imageUrl: { in: urls } }, { images: { hasSome: urls } }] },
       select: { imageUrl: true, images: true },
     }),
     db.store.findUnique({ where: { id: storeId }, select: { logoUrl: true } }),
+    // Foto dos profissionais (barbearia, salão).
+    db.professional.findMany({ where: { storeId, photoUrl: { in: urls } }, select: { photoUrl: true } }),
   ]);
-  const used = new Set<string>([...products.flatMap((p) => [p.imageUrl, ...p.images]), store?.logoUrl].filter((u): u is string => !!u));
+  const used = new Set<string>(
+    [...products.flatMap((p) => [p.imageUrl, ...p.images]), store?.logoUrl, ...pros.map((p) => p.photoUrl)].filter((u): u is string => !!u),
+  );
   const unused = ids.filter((id) => !used.has(storedImageUrl(id)));
   if (unused.length) await db.storedImage.deleteMany({ where: { storeId, id: { in: unused } } });
 }
 
 /**
- * Fotos enviadas há mais de um dia que nunca foram salvas em produto ou logo
+ * Fotos enviadas há mais de um dia que nunca foram salvas em produto, logo ou profissional
  * (a pessoa escolheu a foto e desistiu do cadastro). Roda depois de salvar um produto.
  */
 export async function deleteAbandonedImages(storeId: string) {

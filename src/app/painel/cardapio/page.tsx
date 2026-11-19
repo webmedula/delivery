@@ -5,6 +5,7 @@ import { formatBRL } from "@/lib/money";
 import { modulesFor, termsFor } from "@/lib/niche";
 import { createCategory, deleteCategory, deleteProduct, toggleProduct } from "../actions";
 import { ProductForm } from "@/components/ProductForm";
+import { formatDuration } from "@/lib/booking";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,9 @@ export default async function MenuPage() {
     <div className="grid gap-6 lg:grid-cols-5">
       <div className="space-y-6 lg:col-span-2">
         <section className="card space-y-3">
-          <h2 className="font-semibold">Novo produto</h2>
-          <p className="text-xs text-stone-500">{products.length}{limit > 0 ? ` de ${limit}` : ""} produtos no plano {store.plan.name}</p>
-          <ProductForm categories={categories.map((c) => ({ id: c.id, name: c.name }))} variants={modules.variants} examplePrice={terms.productExample} />
+          <h2 className="font-semibold">{modules.booking ? "Novo serviço" : "Novo produto"}</h2>
+          <p className="text-xs text-stone-500">{products.length}{limit > 0 ? ` de ${limit}` : ""} {modules.booking ? "serviços" : "produtos"} no plano {store.plan.name}</p>
+          <ProductForm categories={categories.map((c) => ({ id: c.id, name: c.name }))} variants={modules.variants} service={modules.booking} examplePrice={terms.productExample} />
         </section>
         <section className="card space-y-3">
           <h2 className="font-semibold">Categorias</h2>
@@ -47,8 +48,8 @@ export default async function MenuPage() {
       </div>
 
       <section className="card lg:col-span-3">
-        <h2 className="mb-3 font-semibold">Produtos do {terms.catalogLower}</h2>
-        {products.length === 0 && <p className="text-sm text-stone-500">Cadastre seu primeiro produto ao lado.</p>}
+        <h2 className="mb-3 font-semibold">{modules.booking ? "Serviços da agenda" : `Produtos do ${terms.catalogLower}`}</h2>
+        {products.length === 0 && <p className="text-sm text-stone-500">Cadastre seu primeiro {modules.booking ? "serviço" : "produto"} ao lado.</p>}
         <ul className="divide-y divide-stone-100">
           {products.map((p) => {
             const stock = p.variants.length > 0
@@ -67,6 +68,7 @@ export default async function MenuPage() {
                   <Link href={`/painel/cardapio/${p.id}`} className={`font-medium hover:underline ${p.available ? "" : "text-stone-400 line-through"}`}>{p.name}</Link>
                   <p className="text-xs text-stone-500">
                     {p.category?.name ?? "Sem categoria"}
+                    {modules.booking && ` · ${formatDuration(p.durationMinutes ?? 30)}`}
                     {p.variants.length > 0 && ` · ${p.variants.length} variações`}
                     {stock !== null && stock !== undefined && (soldOut ? <span className="font-medium text-red-600"> · esgotado</span> : ` · ${stock} em estoque`)}
                   </p>

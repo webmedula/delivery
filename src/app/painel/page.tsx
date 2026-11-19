@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Order, OrderItem } from "@prisma/client";
 import { requireStoreUser } from "@/lib/auth";
@@ -24,6 +25,8 @@ type BoardOrder = Order & { items: OrderItem[] };
 
 export default async function OrdersPage() {
   const { storeId, store } = await requireStoreUser();
+  // Barbearia/salão: a tela principal é a agenda.
+  if (store.businessType === "BOOKING") redirect("/painel/agenda");
   const startOfDay = brDayStart();
 
   const [open, today, awaiting, doneToday] = await Promise.all([

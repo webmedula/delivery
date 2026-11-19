@@ -171,12 +171,14 @@ export async function createOrderPayment(orderId: string, cpfCnpjInput: string):
       billingType: order.paymentMethod === "ONLINE_PIX" ? ("PIX" as const) : ("CREDIT_CARD" as const),
       value: chargeCents / 100,
       dueDate: isoDateInSaoPaulo(new Date()),
-      description: order.depositCents
-        ? `Sinal da encomenda #${order.number} - ${order.store.name}`
-        : `${order.scheduledFor ? "Encomenda" : "Pedido"} #${order.number} - ${order.store.name}`,
+      description: order.fulfillment === "APPOINTMENT"
+        ? `${order.depositCents ? "Sinal do agendamento" : "Agendamento"} #${order.number} - ${order.store.name}`
+        : order.depositCents
+          ? `Sinal da encomenda #${order.number} - ${order.store.name}`
+          : `${order.scheduledFor ? "Encomenda" : "Pedido"} #${order.number} - ${order.store.name}`,
       externalReference: order.id,
     };
-    const successUrl = `${appUrl()}/loja/${order.store.slug}/pedido/${order.id}`;
+    const successUrl = `${appUrl()}/loja/${order.store.slug}/${order.fulfillment === "APPOINTMENT" ? "agendamento" : "pedido"}/${order.id}`;
     let payment: asaas.AsaasPayment;
     try {
       payment = await asaas.createPaymentAs(key, { ...base, callback: { successUrl, autoRedirect: true } });

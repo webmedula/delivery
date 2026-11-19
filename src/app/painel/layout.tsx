@@ -12,6 +12,14 @@ type NavItem = { href: string; label: string };
 function navFor(store: Parameters<typeof modulesFor>[0]): NavItem[] {
   const modules = modulesFor(store);
   const terms = termsFor(store.businessType);
+  if (modules.booking)
+    return [
+      { href: "/painel/agenda", label: "Agenda" },
+      { href: "/painel/profissionais", label: "Profissionais" },
+      { href: "/painel/cardapio", label: terms.catalog },
+      { href: "/painel/historico", label: "Histórico" },
+      ...rest,
+    ];
   return [
     { href: "/painel", label: "Pedidos" },
     ...(modules.preorder ? [{ href: "/painel/encomendas", label: "Agenda" }] : []),
@@ -67,7 +75,7 @@ export default async function PainelLayout({ children }: { children: React.React
           </nav>
           <div className="ml-auto flex items-center gap-2">
             {!support && isAdminEmail(user.email) && <Link href="/admin" className="btn-ghost">Administração</Link>}
-            <a href={`/loja/${store.slug}`} target="_blank" className="btn-ghost">Ver {terms.catalogLower}</a>
+            <a href={`/loja/${store.slug}`} target="_blank" className="btn-ghost">{store.businessType === "BOOKING" ? "Ver agenda online" : `Ver ${terms.catalogLower}`}</a>
             <form action={logout}><button className="btn-ghost">Sair</button></form>
           </div>
         </div>

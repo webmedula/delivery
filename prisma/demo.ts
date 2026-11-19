@@ -20,7 +20,7 @@ export const DEMO_EMAIL_DOMAIN = "demo.webtenda.com.br";
 export const DEFAULT_DEMO_PASSWORD = "demo1234";
 
 /** Cor, tamanho, preço "de" e mais fotos (loja de roupas). */
-type ItemExtra = { colors?: string[]; sizes?: string[]; compareAtCents?: number; images?: string[]; stock?: number };
+type ItemExtra = { colors?: string[]; sizes?: string[]; compareAtCents?: number; images?: string[]; stock?: number; /** serviço de agendamento: minutos */ duration?: number };
 type Item = [name: string, description: string, priceCents: number, imageUrl: string, extra?: ItemExtra];
 
 type DemoStore = {
@@ -48,6 +48,17 @@ type DemoStore = {
   notes?: (string | null)[];
   /** Encomendas (tipo PREORDER): regras da agenda e sinal. */
   preorder?: { minHours: number; weekdays: number[]; times: string[]; dailyLimit: number | null; depositPercent: number };
+  /** Agendamento (tipo BOOKING): profissionais com expediente e serviços que fazem (nomes). */
+  booking?: {
+    pros: { name: string; hours: string[]; breakStart?: string; breakEnd?: string; services?: string[]; commission?: number }[];
+    step: number;
+    /** Atendimentos por profissional em um dia cheio (fração dos horários ocupados no passado). */
+    occupancy: number;
+  };
+  /** Nomes dos clientes (padrão: CUSTOMERS). */
+  customerNames?: string[];
+  /** Público da campanha (padrão: all). */
+  campaignAudience?: string;
   /** Pedido na mesa por QR code: quantas mesas e a fração do histórico feita na mesa. */
   tables?: { count: number; share: number };
   /** Envio pelos Correios: estado de origem, frete grátis e formas de envio (preços em centavos). */
@@ -405,6 +416,70 @@ export const DEMO_STORES: DemoStore[] = [
       ],
     },
   },
+  {
+    key: "barbearia",
+    color: "#1e3a8a",
+    slug: "barbearia-navalha",
+    name: "Barbearia Navalha",
+    description: "Corte, barba e degradê com hora marcada. Escolha o barbeiro e o horário, sem fila e sem esperar.",
+    address: "Rua Marechal Deodoro, 410 - Centro",
+    deliveryFeeCents: 0,
+    minOrderCents: 0,
+    acceptsPickup: true,
+    acceptsDelivery: false,
+    businessType: "BOOKING",
+    booking: {
+      step: 30,
+      occupancy: 0.7,
+      pros: [
+        { name: "Rafael Navalha", hours: ["", "", "09:00-19:00", "09:00-19:00", "09:00-19:00", "09:00-19:00", "08:00-16:00"], breakStart: "12:00", breakEnd: "13:00" },
+        { name: "Diego Santos", hours: ["", "10:00-20:00", "10:00-20:00", "10:00-20:00", "10:00-20:00", "10:00-20:00", "08:00-16:00"], breakStart: "13:00", breakEnd: "14:00", commission: 50 },
+        {
+          name: "Léo Carvalho", hours: ["", "", "09:00-18:00", "09:00-18:00", "09:00-18:00", "09:00-18:00", "08:00-14:00"], breakStart: "12:00", breakEnd: "13:00", commission: 40,
+          services: ["Corte masculino", "Degradê (fade)", "Corte na tesoura", "Corte infantil", "Pezinho e acabamento", "Sobrancelha", "Platinado / luzes"],
+        },
+      ],
+    },
+    payments: ["IN_PERSON", "IN_PERSON", "IN_PERSON", "PIX"],
+    notes: ["Degradê baixo, por favor", "Só tesoura em cima", "Barba bem desenhada", "Primeira vez aqui", null, null, null, null],
+    customerNames: [
+      "Gabriel Souza", "Matheus Lima", "Pedro Henrique Alves", "Lucas Costa", "João Vitor Rocha", "Bruno Martins", "Felipe Dias",
+      "Thiago Ribeiro", "André Gomes", "Diego Ferreira", "Caio Carvalho", "Gustavo Pereira", "Vinícius Nunes", "Rodrigo Araújo",
+      "Leonardo Mendes", "Rafael Barbosa", "Eduardo Teixeira", "Henrique Moraes", "Murilo Castro", "Samuel Pinto",
+    ],
+    loyalty: { ordersRequired: 10, type: "FIXED", value: 4000, minOrderCents: 3000 },
+    coupons: [
+      { code: "PRIMEIROCORTE", type: "PERCENT", value: 15, firstOrderOnly: true },
+      { code: "VOLTA10", type: "FIXED", value: 1000, expiresInDays: 15 },
+    ],
+    campaign: { name: "Saudade do corte", message: "Fala, {nome}! Faz tempo que você não aparece na {loja}. Use o cupom {cupom} e ganhe R$ 10 no próximo corte: {link}", coupon: "VOLTA10" },
+    campaignAudience: "inactive",
+    orders: 0,
+    itemsPerOrder: [1, 1],
+    hours: [9, 19],
+    menu: {
+      Cabelo: [
+        ["Corte masculino", "Máquina e tesoura, com lavagem e finalização.", 4000, img("1759134198561-e2041049419c"), { duration: 30 }],
+        ["Degradê (fade)", "Degradê navalhado do zero, do jeito que você pedir.", 4500, img("1788328155052-e02abe9ba983"), { duration: 40 }],
+        ["Corte na tesoura", "Corte todo na tesoura para cabelo médio ou longo.", 5000, img("1761931403671-d020a14928d9"), { duration: 45 }],
+        ["Corte infantil", "Até 12 anos, com paciência e desenho animado.", 3500, img("1705976062088-5433328c2dcd"), { duration: 30 }],
+        ["Platinado / luzes", "Descoloração com matização. Faça o teste de mecha antes.", 12000, img("1605497788044-5a32c7078486"), { duration: 120 }],
+      ],
+      Barba: [
+        ["Barba completa", "Desenho, aparo e hidratação.", 3500, img("1599011176306-4a96f1516d4d"), { duration: 30 }],
+        ["Barba na navalha com toalha quente", "Barboterapia: toalha quente, navalha e balm.", 4500, img("1599351431202-1e0f0137899a"), { duration: 40 }],
+        ["Pigmentação de barba", "Preenche falhas e realça o desenho.", 3000, img("1621605815971-fbc98d665033"), { duration: 30 }],
+      ],
+      Combos: [
+        ["Corte + barba", "O combo mais pedido da casa.", 7000, img("1783908688260-0c47404926f3"), { duration: 60 }],
+        ["Corte + barba + sobrancelha", "Saia novo em folha.", 8000, img("1647140655214-e4a2d914971f"), { duration: 75 }],
+      ],
+      Extras: [
+        ["Pezinho e acabamento", "Contorno e nuca entre um corte e outro.", 1500, img("1640301133857-c4bc5789c1bb"), { duration: 15 }],
+        ["Sobrancelha", "Na navalha ou na pinça.", 1500, img("1648221122323-572c13a31663"), { duration: 15 }],
+      ],
+    },
+  },
 ];
 
 // Clientes fictícios. Telefones com DDD 00 (não existe): links de WhatsApp não chegam a ninguém.
@@ -507,6 +582,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
             depositPercent: demo.preorder.depositPercent,
           }
         : {}),
+      ...(demo.booking ? { bookingStepMinutes: demo.booking.step, bookingMinMinutes: 60, bookingMaxDays: 30, bookingCancelHours: 2 } : {}),
       shippingOriginUf: demo.shipping?.originUf ?? null,
       shippingFreeAboveCents: demo.shipping?.freeAboveCents ?? null,
       planId,
@@ -562,6 +638,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
           images: extra?.images ?? [],
           compareAtCents: extra?.compareAtCents ?? null,
           stock: hasVariants ? null : (extra?.stock ?? null),
+          durationMinutes: extra?.duration ?? null,
         },
       });
       if (!hasVariants) {
@@ -601,7 +678,7 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
   const otherCoupon = demo.coupons.find((c) => !c.firstOrderOnly);
 
   // Clientes: os primeiros pedem bastante (clientes fiéis), os últimos quase nada.
-  const customers = CUSTOMERS.slice(0, demo.key === "mercado" ? 12 : 16).map((name, i) => ({
+  const customers = (demo.customerNames ?? CUSTOMERS.slice(0, demo.key === "mercado" ? 12 : 16)).map((name, i) => ({
     id: `${storeId}-c${i}`,
     storeId,
     name,
@@ -621,6 +698,13 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     for (const c of customers) if ((r -= c.weight) < 0) return c;
     return customers[0];
   };
+
+  // Barbearia: profissionais e agenda (histórico, hoje e próximos dias) em vez de pedidos.
+  if (demo.booking) {
+    await createAppointments(tx, demo, storeId, customers, now, rand);
+    await createCampaign(tx, demo, storeId, customers, coupons, now);
+    return;
+  }
 
   // Pedidos: histórico dos últimos 30 dias + alguns em andamento agora.
   type Draft = { at: Date; customer: (typeof customers)[number]; status: OrderStatus; table?: number; liveBill?: boolean; scheduledFor?: Date };
@@ -856,14 +940,21 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
     await tx.diningTable.update({ where: { id: tables[9].id }, data: { callKind: "WAITER", calledAt: new Date(now.getTime() - 60_000) } });
   }
 
-  // Campanha: metade dos destinatários já recebeu a mensagem.
+  await createCampaign(tx, demo, storeId, customers, coupons, now);
+}
+
+/** Campanha: metade dos destinatários já recebeu a mensagem. */
+async function createCampaign(
+  tx: Prisma.TransactionClient, demo: DemoStore, storeId: string,
+  customers: { id: string; marketingOptIn: boolean }[], coupons: Map<string, string>, now: Date,
+) {
   const audience = customers.filter((c) => c.marketingOptIn);
   await tx.campaign.create({
     data: {
       storeId,
       name: demo.campaign.name,
       message: demo.campaign.message,
-      audience: "all",
+      audience: demo.campaignAudience ?? "all",
       couponId: coupons.get(demo.campaign.coupon) ?? null,
       createdAt: new Date(now.getTime() - 2 * DAY),
       recipients: {
@@ -871,6 +962,189 @@ async function createDemoStore(tx: Prisma.TransactionClient, demo: DemoStore, pl
       },
     },
   });
+}
+
+type DemoCustomer = { id: string; name: string; phone: string; weight: number };
+
+/**
+ * Agenda da barbearia demo: profissionais, histórico dos últimos 30 dias (com algumas faltas),
+ * o dia de hoje cheio e os próximos dias ficando mais vazios. Clientes fiéis perto da recompensa.
+ */
+async function createAppointments(tx: Prisma.TransactionClient, demo: DemoStore, storeId: string, customers: DemoCustomer[], now: Date, rand: () => number) {
+  const cfg = demo.booking!;
+  const between = (min: number, max: number) => min + Math.floor(rand() * (max - min + 1));
+  const services = await tx.product.findMany({ where: { storeId }, orderBy: { position: "asc" } });
+  const byName = (n: string) => services.find((sv) => sv.name === n)!;
+  const pros = cfg.pros.map((p, i) => ({
+    id: `${storeId}-pro${i}`, storeId, name: p.name, workHours: p.hours, breakStart: p.breakStart ?? null, breakEnd: p.breakEnd ?? null,
+    serviceIds: p.services ? p.services.map((n) => byName(n).id) : [], commissionPercent: p.commission ?? null, position: i,
+    phone: `0099${String(7200000 + i * 37).padStart(7, "0")}`,
+  }));
+  await tx.professional.createMany({ data: pros });
+
+  // Os serviços mais pedidos aparecem mais vezes no sorteio.
+  const weights: Record<string, number> = {
+    "Corte masculino": 10, "Degradê (fade)": 9, "Corte + barba": 8, "Barba completa": 5, "Corte na tesoura": 3, "Corte infantil": 3,
+    "Corte + barba + sobrancelha": 3, "Barba na navalha com toalha quente": 2, "Pezinho e acabamento": 2, "Sobrancelha": 1, "Pigmentação de barba": 1, "Platinado / luzes": 1,
+  };
+  const pickService = (pro: (typeof pros)[number], maxMinutes: number) => {
+    const options = services.filter((sv) => (pro.serviceIds.length === 0 || pro.serviceIds.includes(sv.id)) && (sv.durationMinutes ?? 30) <= maxMinutes);
+    const total = options.reduce((t, o) => t + (weights[o.name] ?? 1), 0);
+    let r = rand() * total;
+    for (const o of options) if ((r -= weights[o.name] ?? 1) < 0) return o;
+    return options[0];
+  };
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const at = (date: string, minutes: number) => brDateTime(date, `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`);
+  type Slot = { pro: (typeof pros)[number]; start: Date; end: Date; service: (typeof services)[number]; offset: number };
+  const slots: Slot[] = [];
+  for (let offset = -30; offset <= 10; offset++) {
+    const date = brDateOf(new Date(now.getTime() + offset * DAY));
+    const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+    // Ocupação: cheio no passado e hoje, esvaziando nos próximos dias (ainda tem horário para agendar).
+    const fill = offset <= 0 ? cfg.occupancy : offset === 1 ? 0.45 : offset === 2 ? 0.35 : offset <= 5 ? 0.25 : 0.12;
+    for (const pro of pros) {
+      const range = pro.workHours[weekday];
+      if (!range) continue;
+      let cursor = toMin(range.slice(0, 5));
+      const end = toMin(range.slice(6));
+      const pause = pro.breakStart ? [toMin(pro.breakStart), toMin(pro.breakEnd!)] : null;
+      while (cursor < end) {
+        if (pause && cursor >= pause[0] && cursor < pause[1]) { cursor = pause[1]; continue; }
+        const room = (pause && cursor < pause[0] ? pause[0] : end) - cursor;
+        if (room < 15) { cursor += room; continue; }
+        if (rand() < fill) {
+          const service = pickService(pro, room);
+          const minutes = service.durationMinutes ?? 30;
+          slots.push({ pro, start: at(date, cursor), end: at(date, cursor + minutes), service, offset });
+          cursor += Math.ceil(minutes / cfg.step) * cfg.step;
+        } else cursor += cfg.step;
+      }
+    }
+  }
+
+  // Clientes: os dois primeiros são fiéis (um a 1 corte da recompensa, outro com ela liberada);
+  // o quarto já faltou duas vezes e tem horário hoje.
+  const past = slots.filter((x) => x.end.getTime() < now.getTime());
+  const ownerOf = new Map<Slot, DemoCustomer>();
+  const loyal: [DemoCustomer, number][] = [[customers[0], demo.loyalty.ordersRequired - 1], [customers[1], demo.loyalty.ordersRequired]];
+  const eligibleForStamp = past.filter((x) => x.service.priceCents >= demo.loyalty.minOrderCents);
+  // Espalha as visitas dos fiéis pelo mês (uma a cada poucos dias), sem repetir no mesmo dia.
+  const stampStep = Math.max(2, Math.floor(eligibleForStamp.length / (loyal.reduce((t, [, n]) => t + n, 0) + 1)));
+  let k = 0;
+  for (const [c, n] of loyal) for (let i = 0; i < n && k < eligibleForStamp.length; i++, k += stampStep) ownerOf.set(eligibleForStamp[k], c);
+  const others = customers.slice(2);
+  const totalWeight = others.reduce((t, c) => t + c.weight, 0);
+  const weighted = () => {
+    let r = rand() * totalWeight;
+    for (const c of others) if ((r -= c.weight) < 0) return c;
+    return others[0];
+  };
+  // Mesmo cliente no máximo uma vez por dia; quando o sorteio repete, entra um cliente avulso
+  // (sem cadastro), como quem chega sem WhatsApp na barbearia.
+  const WALK_INS = ["Gabriel", "Mateus", "Vinícius", "Henrique", "Arthur", "Samuel", "Murilo", "Daniel", "Igor", "Renan", "Otávio", "Fábio"];
+  const seenDay = new Set<string>();
+  let walkIn = 0;
+  for (const x of slots) {
+    const owner = ownerOf.get(x);
+    if (owner) seenDay.add(`${x.offset}:${owner.id}`);
+  }
+  for (const x of slots) {
+    if (ownerOf.has(x)) continue;
+    let c = weighted();
+    for (let t = 0; t < 4 && seenDay.has(`${x.offset}:${c.id}`); t++) c = weighted();
+    if (seenDay.has(`${x.offset}:${c.id}`)) c = { id: "", name: WALK_INS[walkIn++ % WALK_INS.length], phone: "", weight: 0 };
+    else seenDay.add(`${x.offset}:${c.id}`);
+    ownerOf.set(x, c);
+  }
+  // Faltoso: duas faltas no passado e um horário hoje.
+  const flaky = customers[3];
+  const notLoyal = past.filter((x) => ownerOf.get(x) !== customers[0] && ownerOf.get(x) !== customers[1]);
+  // Três visitas em dias diferentes (as duas primeiras viram falta), e nenhuma outra no mesmo dia.
+  const flakyPast = [-19, -11, -4].map((o) => notLoyal.find((x) => x.offset === o)).filter((x): x is Slot => !!x);
+  const flakyDays = new Set([...flakyPast.map((x) => x.offset), 0]);
+  for (const x of slots) if (ownerOf.get(x) === flaky && flakyDays.has(x.offset)) ownerOf.set(x, { id: "", name: WALK_INS[walkIn++ % WALK_INS.length], phone: "", weight: 0 });
+  const flakyToday = slots.find((x) => x.offset === 0 && x.start.getTime() > now.getTime());
+  for (const x of flakyPast) ownerOf.set(x, flaky);
+  if (flakyToday) ownerOf.set(flakyToday, flaky);
+
+  slots.sort((a, b) => a.start.getTime() - b.start.getTime());
+  const drafts = slots.map((x) => {
+    const customer = ownerOf.get(x)!;
+    const isPast = x.end.getTime() < now.getTime();
+    const forcedNoShow = flakyPast.slice(0, 2).includes(x);
+    const roll = rand();
+    const status: OrderStatus = !isPast ? "CONFIRMED" : forcedNoShow || roll < 0.008 ? "CANCELED" : "COMPLETED";
+    const noShow = status === "CANCELED";
+    // Agendou de algumas horas a alguns dias antes (nunca depois de agora).
+    const createdAt = new Date(Math.min(x.start.getTime() - between(2, 96) * 60 * 60_000, now.getTime() - between(5, 300) * 60_000));
+    const upcomingSoon = !isPast && x.offset <= 1;
+    return { x, customer, status, noShow, createdAt, upcomingSoon };
+  });
+  drafts.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  const orders: Prisma.OrderCreateManyInput[] = [];
+  const items: Prisma.OrderItemCreateManyInput[] = [];
+  const firstSeen = new Set<string>();
+  drafts.forEach((d, i) => {
+    const id = `${storeId}-o${i + 1}`;
+    const price = d.x.service.priceCents;
+    const first = d.customer.id !== "" && !firstSeen.has(d.customer.id);
+    firstSeen.add(d.customer.id);
+    const coupon = first && rand() < 0.3 ? demo.coupons.find((c) => c.firstOrderOnly) : undefined;
+    const discountCents = coupon ? discount(coupon.type, coupon.value, price) : 0;
+    const paymentMethod: PaymentMethod = demo.payments ? demo.payments[Math.floor(rand() * demo.payments.length)] : "IN_PERSON";
+    // Hoje e amanhã: parte já confirmou presença pelo lembrete, parte ainda não recebeu.
+    const today0 = d.x.offset === 0;
+    const confirmedByCustomer = d.upcomingSoon && d.customer !== flaky && rand() < (today0 ? 0.6 : 0.3);
+    const reminded = confirmedByCustomer || (d.upcomingSoon && today0 && rand() < 0.5);
+    orders.push({
+      id,
+      storeId,
+      number: i + 1,
+      status: d.status,
+      fulfillment: "APPOINTMENT",
+      paymentMethod,
+      customerId: d.customer.id || null,
+      customerName: d.customer.name,
+      customerPhone: d.customer.phone,
+      notes: demo.notes ? demo.notes[Math.floor(rand() * demo.notes.length)] : null,
+      subtotalCents: price,
+      deliveryFeeCents: 0,
+      discountCents,
+      couponId: null,
+      couponCode: coupon?.code ?? null,
+      totalCents: price - discountCents,
+      scheduledFor: d.x.start,
+      endsAt: d.x.end,
+      professionalId: d.x.pro.id,
+      professionalName: d.x.pro.name,
+      acceptedAt: d.createdAt,
+      completedAt: d.status === "COMPLETED" ? d.x.end : null,
+      canceledAt: d.noShow ? new Date(d.x.start.getTime() + 20 * 60_000) : null,
+      noShowAt: d.noShow ? new Date(d.x.start.getTime() + 20 * 60_000) : null,
+      customerConfirmedAt: confirmedByCustomer ? new Date(Math.min(d.x.start.getTime() - 3 * 60 * 60_000, now.getTime() - between(10, 120) * 60_000)) : null,
+      reminderSentAt: reminded ? new Date(Math.min(d.x.start.getTime() - 4 * 60 * 60_000, now.getTime() - between(30, 180) * 60_000)) : null,
+      createdAt: d.createdAt,
+      updatedAt: d.createdAt,
+    });
+    items.push({ orderId: id, productId: d.x.service.id, name: d.x.service.name, unitPriceCents: price, quantity: 1 });
+  });
+  await tx.order.createMany({ data: orders });
+  await tx.orderItem.createMany({ data: items });
+  // Cupons usados: liga ao cupom pelo código.
+  for (const c of await tx.coupon.findMany({ where: { storeId } }))
+    await tx.order.updateMany({ where: { storeId, couponCode: c.code }, data: { couponId: c.id } });
+
+  // Bloqueios: o Léo vai ao médico amanhã à tarde (se trabalhar amanhã).
+  const tomorrow = brDateOf(new Date(now.getTime() + DAY));
+  if (pros[2]?.workHours[new Date(`${tomorrow}T12:00:00Z`).getUTCDay()]) {
+    await tx.timeBlock.create({ data: { storeId, professionalId: pros[2].id, startsAt: brDateTime(tomorrow, "15:00"), endsAt: brDateTime(tomorrow, "17:00"), reason: "Médico" } });
+    // Libera o horário bloqueado (atendimentos sorteados ali saem da agenda).
+    await tx.order.deleteMany({
+      where: { storeId, professionalId: pros[2].id, scheduledFor: { lt: brDateTime(tomorrow, "17:00") }, endsAt: { gt: brDateTime(tomorrow, "15:00") } },
+    });
+  }
 }
 
 export type DemoResult = { name: string; slug: string; email: string; created: boolean }[];

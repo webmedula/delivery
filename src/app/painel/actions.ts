@@ -237,6 +237,7 @@ const productSchema = z.object({
   images: z.string().max(4000).optional(),
   stock: z.string().optional(),
   variants: z.string().max(40000).optional(),
+  durationMinutes: z.string().max(5).optional(),
 });
 
 /** Cria ou edita um produto (com cor, tamanho e estoque quando a loja usa variações). */
@@ -269,6 +270,13 @@ export async function saveProduct(_: ProductFormState, formData: FormData): Prom
   if (!variantsResult.ok) return { error: variantsResult.error };
   const rows = variantsResult.rows;
 
+  // Serviço de agendamento: quanto tempo ocupa na agenda.
+  let durationMinutes: number | undefined;
+  if (modules.booking) {
+    durationMinutes = Number(data.durationMinutes || 30);
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 600) return { error: "Tempo do serviço inválido." };
+  }
+
   let categoryId: string | null = data.categoryId || null;
   if (categoryId && !(await db.category.findFirst({ where: { id: categoryId, storeId } }))) categoryId = null;
 
@@ -282,6 +290,7 @@ export async function saveProduct(_: ProductFormState, formData: FormData): Prom
     images,
     // Com variações, o estoque é o de cada cor/tamanho.
     stock: rows.length > 0 ? null : stock,
+    ...(durationMinutes ? { durationMinutes } : {}),
   };
 
   if (data.id) {

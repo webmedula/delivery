@@ -39,9 +39,11 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
               </span>
             </label>
           ))}
-          <p className="px-1 text-xs text-stone-500">
-            Em breve: {UPCOMING_NICHES.map((n) => `${n.title.toLowerCase()} (${n.examples.toLowerCase()})`).join(" e ")}.
-          </p>
+          {UPCOMING_NICHES.length > 0 && (
+            <p className="px-1 text-xs text-stone-500">
+              Em breve: {UPCOMING_NICHES.map((n) => `${n.title.toLowerCase()} (${n.examples.toLowerCase()})`).join(" e ")}.
+            </p>
+          )}
         </fieldset>
       </AuthForm>
       <p className="mt-4 text-center text-sm text-stone-600">

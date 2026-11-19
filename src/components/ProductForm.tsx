@@ -5,6 +5,7 @@ import { saveProduct } from "@/app/painel/actions";
 import { SIZE_PRESETS } from "@/lib/niche";
 import { colorSwatch, compareSizes, splitList } from "@/lib/variants";
 import { PhotoPicker } from "./PhotoPicker";
+import { DURATION_OPTIONS, formatDuration } from "@/lib/booking";
 
 export type EditableVariant = { id: string; color: string | null; size: string | null; stock: number | null; priceCents: number | null; active: boolean };
 export type EditableProduct = {
@@ -18,6 +19,7 @@ export type EditableProduct = {
   images: string[];
   stock: number | null;
   variants: EditableVariant[];
+  durationMinutes?: number | null;
 };
 
 type Cell = { id?: string; stock: string; price: string; active: boolean };
@@ -34,12 +36,15 @@ export function ProductForm({
   product,
   variants: withVariants = false,
   examplePrice = "Preço, ex.: 24,90",
+  service = false,
   onSaved,
 }: {
   categories: { id: string; name: string }[];
   product?: EditableProduct;
   variants?: boolean;
   examplePrice?: string;
+  /** Serviço de agendamento (barbearia, salão): pede a duração em vez de estoque. */
+  service?: boolean;
   onSaved?: () => void;
 }) {
   const [state, action, pending] = useActionState(saveProduct, undefined);
@@ -98,13 +103,21 @@ export function ProductForm({
       </div>
       <div>
         <label className="label" htmlFor="p-desc">Descrição</label>
-        <textarea id="p-desc" name="description" className="input" rows={2} defaultValue={product?.description ?? ""} placeholder={withVariants ? "Tecido, caimento, medidas..." : "Ingredientes, tamanho, serve quantas pessoas..."} />
+        <textarea id="p-desc" name="description" className="input" rows={2} defaultValue={product?.description ?? ""} placeholder={withVariants ? "Tecido, caimento, medidas..." : service ? "O que está incluso, ex.: lavagem e finalização" : "Ingredientes, tamanho, serve quantas pessoas..."} />
       </div>
-      <div className={withVariants ? "grid grid-cols-2 gap-3" : ""}>
+      <div className={withVariants || service ? "grid grid-cols-2 gap-3" : ""}>
         <div>
           <label className="label" htmlFor="p-price">Preço (R$)</label>
           <input id="p-price" name="price" placeholder={examplePrice} className="input" inputMode="decimal" defaultValue={money(product?.priceCents ?? null)} required />
         </div>
+        {service && (
+          <div>
+            <label className="label" htmlFor="p-duration">Tempo na agenda</label>
+            <select id="p-duration" name="durationMinutes" className="input" defaultValue={product?.durationMinutes ?? 30}>
+              {[...new Set([...DURATION_OPTIONS, product?.durationMinutes ?? 30])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{formatDuration(m)}</option>)}
+            </select>
+          </div>
+        )}
         {withVariants && (
           <div>
             <label className="label" htmlFor="p-compare">Preço &quot;de&quot; (opcional)</label>
@@ -253,7 +266,7 @@ export function ProductForm({
 
       {state?.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}
       {state?.ok && product && <p className="text-sm text-green-700">Salvo.</p>}
-      <button className="btn w-full" disabled={pending}>{pending ? "Salvando..." : product ? "Salvar alterações" : "Adicionar produto"}</button>
+      <button className="btn w-full" disabled={pending}>{pending ? "Salvando..." : product ? "Salvar alterações" : service ? "Adicionar serviço" : "Adicionar produto"}</button>
     </form>
   );
 }
