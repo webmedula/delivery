@@ -12,9 +12,16 @@ async function main() {
   ];
   for (const p of plans) await db.plan.upsert({ where: { code: p.code }, update: p, create: p });
 
-  // Lojas demo para apresentar o sistema (prisma/demo.ts): com DEMO_STORES=1,
-  // cria as que faltarem a cada subida. Não recria as que já existem.
-  if (process.env.DEMO_STORES === "1" || process.env.DEMO_STORES === "true") {
+  // Lojas demo para apresentar o sistema (prisma/demo.ts): com DEMO_STORES=1, ou se
+  // já existe alguma loja demo no banco, cria as que faltarem a cada subida (assim
+  // a demo de um nicho novo aparece sozinha no deploy). Não recria as que já existem.
+  // DEMO_STORES=0 desliga.
+  const demoFlag = process.env.DEMO_STORES;
+  const demosOn =
+    demoFlag === "1" ||
+    demoFlag === "true" ||
+    (demoFlag !== "0" && demoFlag !== "false" && (await db.store.count({ where: { isDemo: true } })) > 0);
+  if (demosOn) {
     try {
       const result = await setupDemoStores(db, { reset: false });
       const created = result.filter((r) => r.created).map((r) => r.name);
