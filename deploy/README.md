@@ -196,7 +196,7 @@ lojas demo já existirem; se o app estiver fora do ar às 4h, recria quando volt
 **Variáveis opcionais (Environment do app):**
 
 ```
-DEMO_STORES=1                 # cria as lojas demo que faltarem sempre que o app sobe
+DEMO_STORES=1                 # cria as lojas demo que faltarem sempre que o app sobe (se já houver alguma demo, isso já acontece; DEMO_STORES=0 desliga)
 DEMO_PASSWORD=<senha>         # senha do painel das lojas demo (padrão demo1234)
 DEMO_RESET_HOUR=4             # hora da recriação automática (Brasília)
 DEMO_AUTO_RESET=0             # desliga a recriação automática
