@@ -21,12 +21,12 @@ export const dynamic = "force-dynamic";
 export default async function OrderPage({ params, searchParams }: { params: Promise<{ slug: string; id: string }>; searchParams: Promise<{ enviar?: string }> }) {
   const { slug, id } = await params;
   const sendNow = (await searchParams).enviar === "1";
-  let order = await db.order.findFirst({ where: { id, store: { slug } }, include: { items: true, store: true } });
+  let order = await db.order.findFirst({ where: { id, store: { slug } }, include: { items: true, store: true, table: true } });
   if (!order) notFound();
   // Se o webhook ainda não chegou, pergunta ao Asaas se o cliente já pagou.
   if (order.paymentStatus === "AWAITING") {
     await syncOrderPayment(order);
-    order = (await db.order.findFirst({ where: { id }, include: { items: true, store: true } }))!;
+    order = (await db.order.findFirst({ where: { id }, include: { items: true, store: true, table: true } }))!;
   }
   const { store } = order;
   const me = await getSessionCustomer(store.id);
@@ -38,6 +38,9 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   const stepIndex = currentStepIndex(order.status, order.fulfillment);
   const stepTimes = [order.createdAt, order.acceptedAt, order.dispatchedAt, order.completedAt];
   const showEta = !!order.etaMinutesMin && !awaiting && stepIndex >= 0 && stepIndex < 2;
+  const atTable = order.fulfillment === "TABLE";
+  // Pedido na mesa: volta para o cardápio da mesa, para pedir mais (se a mesa ainda existe e está ligada).
+  const backHref = atTable && order.table?.active ? `/loja/${slug}/mesa/${order.table.code}` : `/loja/${slug}`;
   const pix = awaiting && order.paymentMethod === "ONLINE_PIX" ? await getPixQrCode(order) : null;
 
   const message = orderSummaryMessage(order, {
@@ -52,12 +55,13 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       <div className="card text-center">
         <p className="text-sm text-stone-500">{store.name}</p>
         <h1 className="text-2xl font-bold">Pedido #{order.number}</h1>
+        {atTable && order.tableLabel && <p className="mt-1 font-semibold text-emerald-700">{order.tableLabel}</p>}
         <p className="mt-2 inline-block rounded-full bg-brand-100 px-3 py-1 text-sm font-medium text-brand-700">
           {awaiting ? "Aguardando pagamento" : orderStatusText(order.status, order.fulfillment, store.businessType)}
         </p>
         {showEta && (
           <p className="mt-3 text-sm text-stone-700">
-            {order.fulfillment === "DELIVERY" ? "Previsão de entrega" : "Fica pronto"} entre{" "}
+            {order.fulfillment === "DELIVERY" ? "Previsão de entrega" : atTable ? "Chega na mesa" : "Fica pronto"} entre{" "}
             <strong className="text-base text-stone-900">{formatEta(order.createdAt, order.etaMinutesMin!, order.etaMinutesMax)}</strong>
           </p>
         )}
@@ -84,7 +88,8 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           </p>
         )}
         {order.fulfillment !== "SHIPPING" && order.status === "OUT_FOR_DELIVERY" && <p className="mt-3 text-sm text-stone-700">Seu pedido está a caminho{order.courierName ? <> com <strong>{order.courierName.trim().split(/\s+/)[0]}</strong></> : ""}. Fique de olho no telefone!</p>}
-        {order.status === "READY_FOR_PICKUP" && (
+        {order.status === "READY_FOR_PICKUP" && atTable && <p className="mt-3 text-sm text-stone-700">Ficou pronto e já está indo para a sua mesa.</p>}
+        {order.status === "READY_FOR_PICKUP" && !atTable && (
           <p className="mt-3 text-sm text-stone-700">Pode vir buscar{store.address ? <> em <strong>{store.address}</strong></> : ""}.</p>
         )}
         {order.paymentStatus === "PAID" && <p className="mt-2 text-sm font-medium text-green-700">✓ Pagamento confirmado</p>}
@@ -145,6 +150,8 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           <div className="flex justify-between border-t border-stone-100 pt-2">
             <span>Frete{order.shippingMethodName ? ` (${order.shippingMethodName})` : ""}</span><span>{order.deliveryFeeCents ? formatBRL(order.deliveryFeeCents) : "grátis"}</span>
           </div>
+        ) : atTable ? (
+          <div className="flex justify-between border-t border-stone-100 pt-2"><span>Pedido na {order.tableLabel ?? "mesa"}</span><span>sem taxa</span></div>
         ) : (
           <div className="flex justify-between border-t border-stone-100 pt-2"><span>Retirada no local</span><span>grátis</span></div>
         )}
@@ -164,7 +171,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           <pre className="whitespace-pre-wrap rounded-lg bg-white p-3 font-sans text-[13px] leading-relaxed text-stone-700 ring-1 ring-green-600/10">{message}</pre>
         </div>
       )}
-      {store.whatsapp && !(store.isDemo && combine) && !awaiting && order.status !== "CANCELED" && (
+      {store.whatsapp && !atTable && !(store.isDemo && combine) && !awaiting && order.status !== "CANCELED" && (
         <div className="space-y-1">
           <a className="btn w-full py-3" target="_blank" href={storeWhatsappLink(store.whatsapp, message)}>
             {combine ? "Enviar pedido pelo WhatsApp" : "Avisar a loja no WhatsApp"}
@@ -174,16 +181,20 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           )}
         </div>
       )}
-      {!awaiting && order.status !== "CANCELED" && <InstallInvite slug={slug} name={store.name} logoUrl={store.logoUrl} compact />}
-      <Link href={`/loja/${slug}`} className="btn-ghost w-full">Voltar ao {terms.catalogLower}</Link>
+      {!awaiting && !atTable && order.status !== "CANCELED" && <InstallInvite slug={slug} name={store.name} logoUrl={store.logoUrl} compact />}
+      {atTable ? (
+        <Link href={backHref} className="btn w-full py-3">Pedir mais alguma coisa</Link>
+      ) : (
+        <Link href={backHref} className="btn-ghost w-full">Voltar ao {terms.catalogLower}</Link>
+      )}
       {suggestPin ? (
         <Link href={`/loja/${slug}/conta`} className="card block space-y-1 border-brand-100 bg-brand-50 text-sm text-brand-700">
           <strong className="block">Sua conta foi criada neste aparelho ✓</strong>
           Crie um PIN em &quot;Minha conta&quot; para acompanhar seus pedidos também em outro celular ou computador.
         </Link>
-      ) : (
+      ) : order.customerId ? (
         <Link href={`/loja/${slug}/conta`} className="block text-center text-sm text-brand-700">Ver meus pedidos e selos</Link>
-      )}
+      ) : null}
     </main>
   );
 }

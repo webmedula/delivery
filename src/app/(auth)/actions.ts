@@ -7,6 +7,8 @@ import { createSession, destroySession, endSupportSession, hashPassword, verifyP
 import { RESERVED_SLUGS, slugify } from "@/lib/slug";
 import { TRIAL_DAYS } from "@/lib/subscription";
 import { signupDefaultsFor } from "@/lib/niche";
+import { TABLE_SIGNUP, tableSignupDefaults } from "@/lib/tables";
+import { randomBytes } from "node:crypto";
 
 export type FormState = { error?: string } | undefined;
 
@@ -26,10 +28,13 @@ async function uniqueSlug(base: string) {
 }
 
 export async function signup(_: FormState, formData: FormData): Promise<FormState> {
-  const parsed = signupSchema.safeParse(Object.fromEntries(formData));
+  // "Com mesas" é um restaurante (FOOD) que já nasce com as mesas do pedido por QR code.
+  const withTables = formData.get("businessType") === TABLE_SIGNUP.value;
+  const parsed = signupSchema.safeParse({ ...Object.fromEntries(formData), ...(withTables ? { businessType: "FOOD" } : {}) });
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { storeName, name, email, password, businessType } = parsed.data;
-  const defaults = signupDefaultsFor(businessType);
+  const defaults = withTables ? { ...signupDefaultsFor(businessType), ...tableSignupDefaults() } : signupDefaultsFor(businessType);
+  const tables = "tables" in defaults ? defaults.tables : [];
 
   if (await db.user.findUnique({ where: { email } })) return { error: "Já existe uma conta com este e-mail." };
 
@@ -52,6 +57,7 @@ export async function signup(_: FormState, formData: FormData): Promise<FormStat
           // Cada tipo de negócio já nasce configurado (ex.: loja de roupa com retirada e WhatsApp).
           ...defaults.store,
           categories: { create: defaults.categories.map((c, i) => ({ name: c, position: i })) },
+          diningTables: { create: tables.map((label, i) => ({ label, position: i + 1, code: randomBytes(6).toString("base64url") })) },
         },
       },
     },

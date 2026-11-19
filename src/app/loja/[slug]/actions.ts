@@ -19,14 +19,17 @@ import { formatShippingAddress, normalizeCep, resolveShipping } from "@/lib/ship
 import { orderSummaryMessage, storeWhatsappLink } from "@/lib/order-message";
 import { termsFor } from "@/lib/niche";
 import { storeUrl } from "@/lib/store-url";
+import { activeCall, isCallKind } from "@/lib/tables";
 import { clearCustomerSession, getLoyaltyStatus, getSessionCustomer, setCustomerSession } from "@/lib/customers";
 
 const schema = z.object({
   slug: z.string(),
   cart: z.array(z.object({ productId: z.string(), variantId: z.string().max(40).optional(), quantity: z.number().int(), notes: z.string().optional() })).max(50),
   customerName: z.string().trim().min(2, "Informe seu nome.").max(100),
-  customerPhone: z.string().trim().min(8, "Informe seu telefone."),
-  fulfillment: z.enum(["DELIVERY", "PICKUP", "SHIPPING"]),
+  // Na mesa o telefone é opcional (o pedido vai pelo nome e pela mesa).
+  customerPhone: z.string().trim().max(30),
+  fulfillment: z.enum(["DELIVERY", "PICKUP", "SHIPPING", "TABLE"]),
+  tableCode: z.string().max(40).optional(),
   address: z.string().trim().max(300).optional(),
   shipping: z
     .object({
@@ -40,7 +43,7 @@ const schema = z.object({
     })
     .optional(),
   deliveryZoneId: z.string().max(40).optional(),
-  paymentMethod: z.enum(["WHATSAPP", "PIX", "CASH", "CARD_ON_DELIVERY", "ONLINE_PIX", "ONLINE_CARD"]),
+  paymentMethod: z.enum(["WHATSAPP", "PIX", "CASH", "CARD_ON_DELIVERY", "ONLINE_PIX", "ONLINE_CARD", "TAB"]),
   cpfCnpj: z.string().max(20).optional(),
   changeFor: z.string().optional(),
   notes: z.string().trim().max(500).optional(),
@@ -81,13 +84,21 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message };
   const data = parsed.data;
 
+  const atTable = data.fulfillment === "TABLE";
   const phone = normalizePhone(data.customerPhone);
-  if (!isValidPhone(phone)) return { ok: false, error: "Telefone inválido. Use DDD + número, ex.: (11) 98888-7777." };
+  // Na mesa, sem telefone o pedido não fica ligado a um cliente (não conta selo de fidelidade).
+  const anonymous = atTable && phone === "";
+  if (!anonymous && phone.length < 8) return { ok: false, error: "Informe seu telefone." };
+  if (!anonymous && !isValidPhone(phone)) return { ok: false, error: "Telefone inválido. Use DDD + número, ex.: (11) 98888-7777." };
 
   const store = await db.store.findUnique({ where: { slug: data.slug }, include: { plan: true, deliveryZones: true, shippingMethods: true } });
   if (!store) return { ok: false, error: "Loja não encontrada." };
   if (!store.isOpen || !canTakeOrders(store)) return { ok: false, error: "A loja não está recebendo pedidos agora." };
   if (data.fulfillment === "DELIVERY" && !data.address) return { ok: false, error: "Informe o endereço de entrega." };
+  const table = atTable
+    ? await db.diningTable.findFirst({ where: { storeId: store.id, code: data.tableCode ?? "", active: true } })
+    : null;
+  if (atTable && !table) return { ok: false, error: "Esta mesa não está recebendo pedidos pelo celular. Chame o garçom." };
   const ship = data.fulfillment === "SHIPPING" ? data.shipping : undefined;
   if (data.fulfillment === "SHIPPING") {
     if (!ship) return { ok: false, error: "Informe o endereço de envio." };
@@ -128,6 +139,9 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
 
   if (data.fulfillment === "SHIPPING" && (data.paymentMethod === "CASH" || data.paymentMethod === "CARD_ON_DELIVERY"))
     return { ok: false, error: "Para envio, escolha Pix, cartão online ou combinar pelo WhatsApp." };
+  // Na mesa: entra na conta da mesa ou paga agora online. Fora da mesa não existe "conta".
+  if (atTable ? !["TAB", "ONLINE_PIX", "ONLINE_CARD"].includes(data.paymentMethod) : data.paymentMethod === "TAB")
+    return { ok: false, error: "Esta forma de pagamento não está disponível. Escolha outra." };
   if (data.paymentMethod === "WHATSAPP" && !(store.whatsappCheckout && store.whatsapp))
     return { ok: false, error: "Esta forma de pagamento não está disponível. Escolha outra." };
   const online = data.paymentMethod === "ONLINE_PIX" || data.paymentMethod === "ONLINE_CARD";
@@ -138,7 +152,9 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
     if (!normalizeCpfCnpj(data.cpfCnpj ?? "")) return { ok: false, error: "Informe um CPF válido para pagar online." };
   }
 
-  const { customer: known, trusted, isNew } = await resolveCustomer(store, phone);
+  const { customer: known, trusted, isNew } = anonymous
+    ? { customer: null, trusted: false, isNew: false }
+    : await resolveCustomer(store, phone);
 
   // Um desconto por pedido: a recompensa de fidelidade (só para o cliente logado) ou um cupom.
   let discount = 0;
@@ -223,6 +239,8 @@ export async function placeOrder(input: z.input<typeof schema>): Promise<PlaceOr
             shippingUf: shipped?.uf ?? null,
             shippingDaysMin: shipped?.option.daysMin ?? null,
             shippingDaysMax: shipped?.option.daysMax ?? null,
+            tableId: table?.id ?? null,
+            tableLabel: table?.label ?? null,
             etaMinutesMin: eta?.min ?? null,
             etaMinutesMax: eta?.max ?? null,
             notes: data.notes || null,
@@ -386,4 +404,18 @@ export async function cancelUnpaidOrder(formData: FormData) {
   const order = await db.order.findFirst({ where: { id: String(formData.get("orderId") ?? ""), store: { slug } }, include: { store: true } });
   if (order) await cancelAwaitingOrder(order);
   revalidatePath(`/loja/${slug}/pedido/${order?.id}`);
+}
+
+// --- Pedido na mesa ---
+
+/** Cliente na mesa chama o garçom ou pede a conta. Aparece no quadro de pedidos com aviso sonoro. */
+export async function callFromTable(slug: string, code: string, kind: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isCallKind(kind)) return { ok: false };
+  const table = await db.diningTable.findFirst({ where: { code, active: true, store: { slug } } });
+  if (!table) return { ok: false, error: "Mesa não encontrada. Chame o garçom." };
+  // Pedir a conta tem prioridade sobre chamar o garçom, se os dois forem pedidos.
+  const kindToSave = table.callKind === "BILL" && activeCall(table) ? "BILL" : kind;
+  await db.diningTable.update({ where: { id: table.id }, data: { callKind: kindToSave, calledAt: new Date() } });
+  revalidatePath("/painel");
+  return { ok: true };
 }

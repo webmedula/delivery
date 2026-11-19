@@ -49,6 +49,8 @@ export function modulesFor(store: StoreForModules) {
     gridCatalog: retail,
     /** Envio pelos Correios/transportadora com tabela de frete. */
     shipping: retail || !!store.acceptsShipping,
+    /** Pedido na mesa por QR code: bares, lanchonetes, pizzarias e restaurantes. */
+    tables: !retail,
   };
 }
 
@@ -114,6 +116,8 @@ export function orderStatusLabelsFor(type: BusinessType = "FOOD"): Record<OrderS
 export function orderStatusText(status: OrderStatus, fulfillment: string, type: BusinessType = "FOOD") {
   if (fulfillment === "SHIPPING" && status === "OUT_FOR_DELIVERY") return "Enviado";
   if (fulfillment === "SHIPPING" && status === "COMPLETED") return "Entregue";
+  if (fulfillment === "TABLE" && status === "READY_FOR_PICKUP") return "Pronto, indo para a mesa";
+  if (fulfillment === "TABLE" && status === "COMPLETED") return "Servido";
   return orderStatusLabelsFor(type)[status];
 }
 

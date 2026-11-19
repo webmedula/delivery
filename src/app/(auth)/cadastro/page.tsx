@@ -3,10 +3,14 @@ import { AuthForm } from "@/components/AuthForm";
 import { TRIAL_DAYS } from "@/lib/subscription";
 import { NICHES, UPCOMING_NICHES, nicheFromParam } from "@/lib/niche";
 import { signup } from "../actions";
+import { TABLE_SIGNUP } from "@/lib/tables";
 
 export default async function SignupPage({ searchParams }: { searchParams: Promise<{ tipo?: string }> }) {
   // As páginas de venda (delivery.webtenda.com.br, loja.webtenda.com.br) mandam ?tipo= já escolhido.
-  const chosen = nicheFromParam((await searchParams).tipo) ?? "FOOD";
+  const tipo = (await searchParams).tipo;
+  const chosen: string = tipo === TABLE_SIGNUP.param ? TABLE_SIGNUP.value : (nicheFromParam(tipo) ?? "FOOD");
+  // Restaurante com mesas aparece logo depois do delivery.
+  const options = NICHES.flatMap((n) => (n.value === "FOOD" ? [n, TABLE_SIGNUP] : [n]));
   return (
     <>
       <h1 className="text-lg font-semibold">Crie sua loja</h1>
@@ -23,7 +27,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
       >
         <fieldset className="space-y-2">
           <legend className="label">Que tipo de negócio você tem?</legend>
-          {NICHES.map((n) => (
+          {options.map((n) => (
             <label
               key={n.value}
               className="flex cursor-pointer items-start gap-3 rounded-xl border border-stone-200 p-3 text-sm transition has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50 has-[:checked]:ring-1 has-[:checked]:ring-brand-500"

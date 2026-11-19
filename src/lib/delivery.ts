@@ -28,6 +28,7 @@ export function nextStep(status: OrderStatus, fulfillment: FulfillmentType, type
     case "CONFIRMED":
       return { status: "PREPARING", label: t.startAction };
     case "PREPARING":
+      if (fulfillment === "TABLE") return { status: "READY_FOR_PICKUP", label: "Pronto para servir" };
       if (fulfillment === "SHIPPING") return { status: "OUT_FOR_DELIVERY", label: "Marcar como enviado" };
       return fulfillment === "DELIVERY"
         ? { status: "OUT_FOR_DELIVERY", label: "Saiu para entrega" }
@@ -35,7 +36,7 @@ export function nextStep(status: OrderStatus, fulfillment: FulfillmentType, type
     case "OUT_FOR_DELIVERY":
       return { status: "COMPLETED", label: fulfillment === "SHIPPING" ? "Cliente recebeu" : "Entregue" };
     case "READY_FOR_PICKUP":
-      return { status: "COMPLETED", label: "Cliente retirou" };
+      return { status: "COMPLETED", label: fulfillment === "TABLE" ? "Servido na mesa" : "Cliente retirou" };
     default:
       return null;
   }
@@ -69,8 +70,10 @@ export function trackingSteps(fulfillment: FulfillmentType, type: BusinessType =
       ? { label: "Enviado", statuses: ["OUT_FOR_DELIVERY"] }
       : fulfillment === "DELIVERY"
         ? { label: "Saiu para entrega", statuses: ["OUT_FOR_DELIVERY"] }
-        : { label: "Pronto para retirar", statuses: ["READY_FOR_PICKUP"] },
-    { label: fulfillment === "PICKUP" ? "Retirado" : "Entregue", statuses: ["COMPLETED"] },
+        : fulfillment === "TABLE"
+          ? { label: "Pronto, indo para a mesa", statuses: ["READY_FOR_PICKUP"] }
+          : { label: "Pronto para retirar", statuses: ["READY_FOR_PICKUP"] },
+    { label: fulfillment === "PICKUP" ? "Retirado" : fulfillment === "TABLE" ? "Servido" : "Entregue", statuses: ["COMPLETED"] },
   ] as { label: string; statuses: OrderStatus[] }[];
 }
 
@@ -89,6 +92,7 @@ export type EtaRules = {
 /** Faixa de tempo da loja para o tipo de pedido, ou null se a loja não informou. */
 export function etaFor(rules: EtaRules, fulfillment: FulfillmentType): { min: number; max: number } | null {
   if (fulfillment === "SHIPPING") return null; // envio tem prazo em dias, da forma de envio
+  // Na mesa vale o tempo de preparo da retirada ("fica pronto em").
   const [min, max] =
     fulfillment === "DELIVERY" ? [rules.deliveryMinutesMin, rules.deliveryMinutesMax] : [rules.pickupMinutesMin, rules.pickupMinutesMax];
   if (!min) return null;
@@ -203,10 +207,14 @@ export function customerMessage(order: MessageOrder, storeName: string, tracking
       body = `${hi} ${cap(ref)} saiu para entrega${order.courierName ? ` com ${order.courierName.trim().split(/\s+/)[0]}` : ""} e logo chega aí.${toPay}`;
       break;
     case "READY_FOR_PICKUP":
+      if (order.fulfillment === "TABLE") {
+        body = `${hi} ${cap(ref)} está pronto e já vai para a sua mesa.`;
+        break;
+      }
       body = `${hi} ${cap(ref)} está pronto para retirar${storeAddress ? ` em ${storeAddress}` : ""}.${toPay}`;
       break;
     case "COMPLETED":
-      body = `${hi} ${cap(ref)} foi ${order.fulfillment === "PICKUP" ? "retirado" : "entregue"}. Obrigado pela preferência!`;
+      body = `${hi} ${cap(ref)} foi ${order.fulfillment === "PICKUP" ? "retirado" : order.fulfillment === "TABLE" ? "servido" : "entregue"}. Obrigado pela preferência!`;
       break;
     case "CANCELED":
       body = `${hi} Infelizmente ${ref} foi cancelado. Se quiser, fale com a gente por aqui.`;

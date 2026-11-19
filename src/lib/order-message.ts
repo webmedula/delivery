@@ -17,6 +17,7 @@ type SummaryOrder = {
   address: string | null;
   deliveryZoneName: string | null;
   shippingMethodName?: string | null;
+  tableLabel?: string | null;
   notes: string | null;
   customerName: string;
   items: { quantity: number; name: string; unitPriceCents: number }[];
@@ -44,7 +45,9 @@ export function orderSummaryMessage(order: SummaryOrder, opts: { trackingUrl?: s
       ? `Entregar em: ${order.address}${order.deliveryZoneName ? ` (${order.deliveryZoneName})` : ""}`
       : order.fulfillment === "SHIPPING"
         ? `Enviar para: ${order.address}`
-        : "Vou retirar na loja.",
+        : order.fulfillment === "TABLE"
+          ? `Estou na ${order.tableLabel ?? "mesa"}.`
+          : "Vou retirar na loja.",
     ...(order.notes ? [`Obs.: ${order.notes}`] : []),
     ...(combine ? ["", "Como faço o pagamento?"] : []),
     ...(opts.trackingUrl ? ["", `Pedido: ${opts.trackingUrl}`] : []),
