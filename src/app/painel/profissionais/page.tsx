@@ -8,6 +8,8 @@ import { formatPhone } from "@/lib/phone";
 import { brDateOf, brDateTime } from "@/lib/preorder";
 import { describeWorkHours, initials, professionalReport } from "@/lib/booking";
 import { ProfessionalEditor, ProfessionalForm } from "@/components/ProfessionalForm";
+import { GoogleAgendaPanel } from "@/components/GoogleAgendaPanel";
+import { calendarEnabled } from "@/lib/google-calendar";
 import { deleteProfessional, toggleProfessional } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +22,11 @@ function monthShift(ym: string, n: number) {
   return d.toISOString().slice(0, 7);
 }
 
-export default async function ProfessionalsPage({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
+export default async function ProfessionalsPage({ searchParams }: { searchParams: Promise<{ mes?: string; google?: string }> }) {
   const { store, storeId } = await requireStoreUser();
   if (!modulesFor(store).booking) redirect("/painel");
   const current = brDateOf(new Date()).slice(0, 7);
-  const raw = (await searchParams).mes;
+  const { mes: raw, google } = await searchParams;
   const month = raw && /^\d{4}-\d{2}$/.test(raw) && raw <= current ? raw : current;
   const from = brDateTime(`${month}-01`, "00:00");
   const to = brDateTime(`${monthShift(month, 1)}-01`, "00:00");
@@ -88,6 +90,8 @@ export default async function ProfessionalsPage({ searchParams }: { searchParams
             ))}
           </ul>
         </section>
+
+        {calendarEnabled() && !store.isDemo && <GoogleAgendaPanel storeId={storeId} storeName={store.name} notice={google} />}
 
         <section className="card space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">

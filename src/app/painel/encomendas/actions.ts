@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { requireStoreUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { DEPOSIT_OPTIONS, parseClosedDates, parseTimes } from "@/lib/preorder";
+import { queueCalendarSync } from "@/lib/google-calendar";
 
 export type PreorderSettingsState = { error?: string; ok?: boolean } | undefined;
 
@@ -57,6 +58,7 @@ export async function toggleDepositPaid(formData: FormData) {
   });
   if (!order || order.paymentStatus === "PAID") return;
   await db.order.update({ where: { id: order.id }, data: { depositPaidAt: order.depositPaidAt ? null : new Date() } });
+  await queueCalendarSync(order.id); // agendamento de barbearia: atualiza "sinal pago" no Google Agenda
   revalidatePath("/painel");
   revalidatePath("/painel/encomendas");
 }
