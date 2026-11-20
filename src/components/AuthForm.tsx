@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import type { FormState } from "@/app/(auth)/actions";
 
-type Field = { name: string; label: string; type?: string; autoComplete?: string };
+type Field = { name: string; label: string; type?: string; autoComplete?: string; defaultValue?: string };
 
 export function AuthForm({
   action,
@@ -24,7 +24,7 @@ export function AuthForm({
       {fields.map((f) => (
         <div key={f.name}>
           <label className="label" htmlFor={f.name}>{f.label}</label>
-          <input id={f.name} name={f.name} type={f.type ?? "text"} autoComplete={f.autoComplete} required className="input" />
+          <input id={f.name} name={f.name} type={f.type ?? "text"} autoComplete={f.autoComplete} defaultValue={f.defaultValue} required className="input" />
         </div>
       ))}
       {state?.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}

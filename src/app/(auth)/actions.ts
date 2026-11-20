@@ -9,6 +9,7 @@ import { TRIAL_DAYS } from "@/lib/subscription";
 import { BOOKING_STARTER_SERVICES, signupDefaultsFor } from "@/lib/niche";
 import { TABLE_SIGNUP, tableSignupDefaults } from "@/lib/tables";
 import { randomBytes } from "node:crypto";
+import { clearPendingGoogleSignup, readPendingGoogleSignup } from "@/lib/google-auth";
 
 export type FormState = { error?: string } | undefined;
 
@@ -27,12 +28,23 @@ async function uniqueSlug(base: string) {
   return slug;
 }
 
-export async function signup(_: FormState, formData: FormData): Promise<FormState> {
-  // "Com mesas" é um restaurante (FOOD) que já nasce com as mesas do pedido por QR code.
+/** Lê o tipo de negócio do formulário. "Com mesas" é um restaurante (FOOD) que já nasce com as mesas do pedido por QR code. */
+function businessFrom(formData: FormData) {
   const withTables = formData.get("businessType") === TABLE_SIGNUP.value;
-  const parsed = signupSchema.safeParse({ ...Object.fromEntries(formData), ...(withTables ? { businessType: "FOOD" } : {}) });
-  if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const { storeName, name, email, password, businessType } = parsed.data;
+  return { withTables, businessType: withTables ? "FOOD" : formData.get("businessType") ?? undefined };
+}
+
+/** Cria o lojista com a loja já configurada para o tipo de negócio. Usado no cadastro com senha e no cadastro com Google. */
+async function createOwnerWithStore(input: {
+  storeName: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  googleId?: string;
+  businessType: "FOOD" | "RETAIL" | "PREORDER" | "BOOKING";
+  withTables: boolean;
+}): Promise<FormState | { userId: string }> {
+  const { storeName, name, email, passwordHash, googleId, businessType, withTables } = input;
   const defaults = withTables ? { ...signupDefaultsFor(businessType), ...tableSignupDefaults() } : signupDefaultsFor(businessType);
   const tables = "tables" in defaults ? defaults.tables : [];
 
@@ -45,7 +57,8 @@ export async function signup(_: FormState, formData: FormData): Promise<FormStat
     data: {
       name,
       email,
-      passwordHash: await hashPassword(password),
+      passwordHash,
+      googleId,
       role: "OWNER",
       store: {
         create: {
@@ -77,7 +90,40 @@ export async function signup(_: FormState, formData: FormData): Promise<FormStat
     });
   }
 
-  await createSession(user.id);
+  return { userId: user.id };
+}
+
+export async function signup(_: FormState, formData: FormData): Promise<FormState> {
+  const { withTables, businessType } = businessFrom(formData);
+  const parsed = signupSchema.safeParse({ ...Object.fromEntries(formData), businessType });
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const { password, ...data } = parsed.data;
+  const result = await createOwnerWithStore({ ...data, passwordHash: await hashPassword(password), withTables });
+  if (!result || !("userId" in result)) return result;
+  await createSession(result.userId);
+  redirect("/painel");
+}
+
+const googleSignupSchema = signupSchema.omit({ email: true, password: true });
+
+/** Fim do cadastro com Google: o e-mail veio do Google; falta o nome da loja e o tipo de negócio. */
+export async function completeGoogleSignup(_: FormState, formData: FormData): Promise<FormState> {
+  const pending = await readPendingGoogleSignup();
+  if (!pending) return { error: "O tempo para concluir acabou. Clique em “Continuar com Google” de novo." };
+  const { withTables, businessType } = businessFrom(formData);
+  const parsed = googleSignupSchema.safeParse({ ...Object.fromEntries(formData), businessType });
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  // Sem senha: o lojista entra pelo Google. A senha aleatória nunca é mostrada (dá para criar uma pelo admin, se precisar).
+  const result = await createOwnerWithStore({
+    ...parsed.data,
+    email: pending.email,
+    googleId: pending.googleId,
+    passwordHash: await hashPassword(randomBytes(32).toString("base64url")),
+    withTables,
+  });
+  if (!result || !("userId" in result)) return result;
+  await clearPendingGoogleSignup();
+  await createSession(result.userId);
   redirect("/painel");
 }
 

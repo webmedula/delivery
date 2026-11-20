@@ -188,6 +188,8 @@ model User {
   email        String   @unique
   name         String
   passwordHash String
+  /// Conta Google vinculada ("Entrar com Google"). Quem nasce pelo Google recebe uma senha aleatória.
+  googleId     String?  @unique
   role         Role     @default(OWNER)
   storeId      String?
   store        Store?   @relation(fields: [storeId], references: [id], onDelete: Cascade)
