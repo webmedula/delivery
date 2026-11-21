@@ -157,6 +157,11 @@ model Store {
   // pagamento online e fica fora dos números da administração.
   isDemo Boolean @default(false)
 
+  // Parceiro (revendedor) que indicou a loja: vem do código ou link usado no cadastro,
+  // ou é marcado pelo administrador. Serve para calcular a comissão (paga por fora).
+  partnerId String?
+  partner   Partner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+
   // Programa de fidelidade: a cada N pedidos concluídos, o cliente ganha um desconto.
   loyaltyEnabled        Boolean      @default(false)
   loyaltyOrdersRequired Int          @default(10)
@@ -182,6 +187,25 @@ model Store {
   orders     Order[]
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
+
+  @@index([partnerId])
+}
+
+// Programa de parceiros: quem revende a WebTenda (social media, agência, técnico...).
+// O parceiro não entra no sistema; o administrador cria o código em /admin/parceiros
+// e paga a comissão por fora, olhando quais lojas indicadas estão pagando.
+model Partner {
+  id                String   @id @default(cuid())
+  code              String   @unique // só letras maiúsculas e números, ex.: "MARIA" (vai no link ?parceiro=MARIA)
+  name              String
+  whatsapp          String? // DDD + número, só dígitos (lib/phone)
+  email             String?
+  pixKey            String? // para pagar a comissão
+  commissionPercent Int      @default(30) // % da mensalidade de cada loja indicada que está pagando
+  notes             String?
+  active            Boolean  @default(true) // inativo: o código deixa de valer no cadastro (lojas antigas continuam ligadas)
+  stores            Store[]
+  createdAt         DateTime @default(now())
 }
 
 model User {

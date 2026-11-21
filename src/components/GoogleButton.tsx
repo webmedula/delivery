@@ -1,9 +1,12 @@
 import { googleEnabled } from "@/lib/google-auth";
 
 /** Botão "Entrar com Google". Some sozinho enquanto GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET não estão configurados. */
-export function GoogleButton({ label = "Entrar com Google", tipo }: { label?: string; tipo?: string }) {
+export function GoogleButton({ label = "Entrar com Google", tipo, parceiro }: { label?: string; tipo?: string; parceiro?: string | null }) {
   if (!googleEnabled()) return null;
-  const href = tipo ? `/api/auth/google?tipo=${encodeURIComponent(tipo)}` : "/api/auth/google";
+  const params = new URLSearchParams();
+  if (tipo) params.set("tipo", tipo);
+  if (parceiro) params.set("parceiro", parceiro);
+  const href = params.size ? `/api/auth/google?${params}` : "/api/auth/google";
   return (
     <>
       {/* Link comum (não <Link>): o navegador precisa sair do app e ir até o Google. */}

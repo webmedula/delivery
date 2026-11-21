@@ -8,6 +8,7 @@ export const metadata = { title: "Administração · WebTenda" };
 const nav = [
   { href: "/admin", label: "Visão geral" },
   { href: "/admin/lojas", label: "Lojas" },
+  { href: "/admin/parceiros", label: "Parceiros" },
   { href: "/admin/usuarios", label: "Usuários" },
 ];
 

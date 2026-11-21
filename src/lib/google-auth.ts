@@ -39,9 +39,9 @@ const cookieOptions = (maxAge: number) => ({
 });
 
 /** Monta o endereço do Google e guarda o "state" (proteção contra CSRF) num cookie assinado. */
-export async function startGoogleLogin(tipo: string | null) {
+export async function startGoogleLogin(tipo: string | null, parceiro: string | null = null) {
   const state = randomBytes(16).toString("base64url");
-  const token = await new SignJWT({ state, tipo: tipo ?? "" })
+  const token = await new SignJWT({ state, tipo: tipo ?? "", parceiro: parceiro ?? "" })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("10m")
     .sign(secret());
@@ -57,18 +57,19 @@ export async function startGoogleLogin(tipo: string | null) {
   return `${AUTH_URL}?${params}`;
 }
 
-/** Confere o state devolvido pelo Google. Devolve o tipo de negócio escolhido antes (se veio do cadastro). */
-export async function checkGoogleState(state: string | null): Promise<{ ok: boolean; tipo: string | null }> {
+const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+
+/** Confere o state devolvido pelo Google. Devolve o tipo de negócio e o código do parceiro escolhidos antes (se veio do cadastro). */
+export async function checkGoogleState(state: string | null): Promise<{ ok: boolean; tipo: string | null; parceiro: string | null }> {
   const jar = await cookies();
   const token = jar.get(STATE_COOKIE)?.value;
   jar.delete(STATE_COOKIE);
-  if (!token || !state) return { ok: false, tipo: null };
+  if (!token || !state) return { ok: false, tipo: null, parceiro: null };
   try {
     const { payload } = await jwtVerify(token, secret());
-    const tipo = typeof payload.tipo === "string" && payload.tipo ? payload.tipo : null;
-    return { ok: payload.state === state, tipo };
+    return { ok: payload.state === state, tipo: str(payload.tipo), parceiro: str(payload.parceiro) };
   } catch {
-    return { ok: false, tipo: null };
+    return { ok: false, tipo: null, parceiro: null };
   }
 }
 
@@ -104,22 +105,22 @@ export async function fetchGoogleProfile(code: string): Promise<GoogleProfile | 
 }
 
 /** Conta Google nova: guarda o perfil por 30 min até o lojista dizer o nome da loja. */
-export async function savePendingGoogleSignup(profile: GoogleProfile, tipo: string | null) {
-  const token = await new SignJWT({ ...profile, tipo: tipo ?? "" })
+export async function savePendingGoogleSignup(profile: GoogleProfile, tipo: string | null, parceiro: string | null = null) {
+  const token = await new SignJWT({ ...profile, tipo: tipo ?? "", parceiro: parceiro ?? "" })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("30m")
     .sign(secret());
   (await cookies()).set(PENDING_COOKIE, token, cookieOptions(30 * 60));
 }
 
-export async function readPendingGoogleSignup(): Promise<(GoogleProfile & { tipo: string | null }) | null> {
+export async function readPendingGoogleSignup(): Promise<(GoogleProfile & { tipo: string | null; parceiro: string | null }) | null> {
   const token = (await cookies()).get(PENDING_COOKIE)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
-    const { googleId, email, name, tipo } = payload as Record<string, unknown>;
+    const { googleId, email, name, tipo, parceiro } = payload as Record<string, unknown>;
     if (typeof googleId !== "string" || typeof email !== "string") return null;
-    return { googleId, email, name: typeof name === "string" ? name : "", tipo: typeof tipo === "string" && tipo ? tipo : null };
+    return { googleId, email, name: typeof name === "string" ? name : "", tipo: str(tipo), parceiro: str(parceiro) };
   } catch {
     return null;
   }

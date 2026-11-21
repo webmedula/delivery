@@ -9,6 +9,9 @@ import { db } from "@/lib/db";
 import { endSupportSession, hashPassword, requireAdmin, startSupportSession } from "@/lib/auth";
 import * as asaas from "@/lib/asaas";
 import { removeDemoStores, setupDemoStores } from "../../../prisma/demo";
+import { z } from "zod";
+import { normalizePartnerCode, suggestPartnerCode } from "@/lib/partner";
+import { isValidPhone, normalizePhone } from "@/lib/phone";
 
 export type AdminState = { error?: string; ok?: string } | undefined;
 
@@ -130,4 +133,89 @@ export async function deleteDemoStores(_: AdminState, _formData: FormData): Prom
   await log(admin.email, "demo_delete", null, `${count} loja(s)`);
   revalidatePath("/admin", "layout");
   return { ok: `${count} loja(s) demo apagada(s).` };
+}
+
+// ---------- Parceiros (revendedores) ----------
+
+const partnerSchema = z.object({
+  name: z.string().trim().min(2, "Informe o nome do parceiro.").max(100),
+  code: z.string().optional(),
+  whatsapp: z.string().optional(),
+  email: z.union([z.literal(""), z.string().trim().toLowerCase().email("E-mail inválido.")]).optional(),
+  pixKey: z.string().trim().max(120).optional(),
+  commissionPercent: z.coerce.number().int("A comissão precisa ser um número inteiro.").min(0, "Comissão de 0 a 100%.").max(100, "Comissão de 0 a 100%."),
+  notes: z.string().trim().max(1000).optional(),
+});
+
+/** Lê e confere o formulário de parceiro (criar e editar usam o mesmo). */
+function readPartner(formData: FormData) {
+  const parsed = partnerSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message } as const;
+  const d = parsed.data;
+  const code = normalizePartnerCode(d.code) || suggestPartnerCode(d.name);
+  if (code.length < 3) return { error: "O código precisa ter pelo menos 3 letras ou números." } as const;
+  const phone = d.whatsapp ? normalizePhone(d.whatsapp) : "";
+  if (phone && !isValidPhone(phone)) return { error: "WhatsApp inválido. Use DDD + número." } as const;
+  return {
+    data: {
+      name: d.name,
+      code,
+      whatsapp: phone || null,
+      email: d.email || null,
+      pixKey: d.pixKey || null,
+      commissionPercent: d.commissionPercent,
+      notes: d.notes || null,
+    },
+  } as const;
+}
+
+export async function createPartner(_: AdminState, formData: FormData): Promise<AdminState> {
+  const admin = await requireAdmin();
+  const read = readPartner(formData);
+  if ("error" in read) return { error: read.error };
+  if (await db.partner.findUnique({ where: { code: read.data.code } }))
+    return { error: `O código ${read.data.code} já é de outro parceiro. Escolha outro.` };
+  const partner = await db.partner.create({ data: read.data });
+  await log(admin.email, `Cadastrou o parceiro ${partner.name} (${partner.code})`, null);
+  revalidatePath("/admin/parceiros");
+  redirect(`/admin/parceiros/${partner.id}`);
+}
+
+export async function updatePartner(_: AdminState, formData: FormData): Promise<AdminState> {
+  const admin = await requireAdmin();
+  const id = String(formData.get("partnerId"));
+  const read = readPartner(formData);
+  if ("error" in read) return { error: read.error };
+  const taken = await db.partner.findUnique({ where: { code: read.data.code } });
+  if (taken && taken.id !== id) return { error: `O código ${read.data.code} já é de outro parceiro. Escolha outro.` };
+  const partner = await db.partner.update({ where: { id }, data: read.data });
+  await log(admin.email, `Alterou o parceiro ${partner.name} (${partner.code})`, null);
+  revalidatePath("/admin/parceiros", "layout");
+  return { ok: "Parceiro salvo." };
+}
+
+/** Desativar: o código para de valer em cadastros novos. As lojas que ele já trouxe continuam ligadas a ele. */
+export async function togglePartner(_: AdminState, formData: FormData): Promise<AdminState> {
+  const admin = await requireAdmin();
+  const id = String(formData.get("partnerId"));
+  const current = await db.partner.findUnique({ where: { id } });
+  if (!current) return { error: "Parceiro não encontrado." };
+  const partner = await db.partner.update({ where: { id }, data: { active: !current.active } });
+  await log(admin.email, `${partner.active ? "Reativou" : "Desativou"} o parceiro ${partner.name} (${partner.code})`, null);
+  revalidatePath("/admin/parceiros", "layout");
+  return { ok: partner.active ? "Parceiro reativado." : "Parceiro desativado. O código não vale mais em cadastros novos." };
+}
+
+/** Liga (ou desliga) a loja a um parceiro, para quando o lojista esqueceu o código ou o parceiro montou a loja. */
+export async function setStorePartner(_: AdminState, formData: FormData): Promise<AdminState> {
+  const admin = await requireAdmin();
+  const storeId = String(formData.get("storeId"));
+  const partnerId = String(formData.get("partnerId") ?? "") || null;
+  const partner = partnerId ? await db.partner.findUnique({ where: { id: partnerId } }) : null;
+  if (partnerId && !partner) return { error: "Parceiro não encontrado." };
+  await db.store.update({ where: { id: storeId }, data: { partnerId } });
+  await log(admin.email, partner ? `Ligou a loja ao parceiro ${partner.name} (${partner.code})` : "Tirou o parceiro da loja", storeId);
+  refresh(storeId);
+  revalidatePath("/admin/parceiros", "layout");
+  return { ok: partner ? `Loja ligada a ${partner.name}.` : "A loja ficou sem parceiro." };
 }

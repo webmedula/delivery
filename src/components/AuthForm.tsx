@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import type { FormState } from "@/app/(auth)/actions";
+import { keepOnSubmit } from "./useKeepForm";
 
 type Field = { name: string; label: string; type?: string; autoComplete?: string; defaultValue?: string };
 
@@ -10,16 +11,19 @@ export function AuthForm({
   fields,
   submitLabel,
   children,
+  after,
 }: {
   action: (state: FormState, formData: FormData) => Promise<FormState>;
   fields: Field[];
   submitLabel: string;
   /** Campos extras antes dos campos de texto (ex.: tipo de negócio no cadastro). */
   children?: React.ReactNode;
+  /** Campos extras depois dos campos de texto (ex.: código do parceiro no cadastro). */
+  after?: React.ReactNode;
 }) {
   const [state, formAction, pending] = useActionState(action, undefined);
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} onSubmit={keepOnSubmit(formAction)} className="space-y-4">
       {children}
       {fields.map((f) => (
         <div key={f.name}>
@@ -27,6 +31,7 @@ export function AuthForm({
           <input id={f.name} name={f.name} type={f.type ?? "text"} autoComplete={f.autoComplete} defaultValue={f.defaultValue} required className="input" />
         </div>
       ))}
+      {after}
       {state?.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}
       <button className="btn w-full" disabled={pending}>{pending ? "Aguarde..." : submitLabel}</button>
     </form>

@@ -6,6 +6,7 @@ import { nicheFromParam } from "@/lib/niche";
 import { TABLE_SIGNUP } from "@/lib/tables";
 import { TRIAL_DAYS } from "@/lib/subscription";
 import { completeGoogleSignup } from "../../actions";
+import { PartnerCodeField } from "@/components/PartnerCodeField";
 
 // Conta Google nova: falta só o nome da loja e o tipo de negócio.
 export default async function GoogleSignupPage() {
@@ -25,6 +26,7 @@ export default async function GoogleSignupPage() {
           { name: "storeName", label: "Nome da loja" },
           { name: "name", label: "Seu nome", autoComplete: "name", defaultValue: pending.name },
         ]}
+        after={<PartnerCodeField code={pending.parceiro} />}
       >
         <BusinessTypeOptions chosen={chosen} />
       </AuthForm>
