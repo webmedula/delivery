@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import type { AdminState } from "@/app/admin/actions";
+import { keepOnSubmit } from "./useKeepForm";
 
 type Action = (state: AdminState, formData: FormData) => Promise<AdminState>;
 
@@ -20,7 +21,8 @@ export function AdminActionForm({
     <form
       action={formAction}
       className={className}
-      onSubmit={(e) => { if (confirmText && !confirm(confirmText)) e.preventDefault(); }}
+      // Envia sem limpar o formulário, para corrigir só o campo errado quando dá erro.
+      onSubmit={(e) => { if (confirmText && !confirm(confirmText)) e.preventDefault(); else keepOnSubmit(formAction)(e); }}
     >
       {Object.entries(hidden).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       <fieldset disabled={pending} className="flex flex-wrap items-end gap-2">{children}</fieldset>

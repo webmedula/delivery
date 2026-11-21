@@ -6,7 +6,7 @@ import { formatBRL } from "@/lib/money";
 import { statusLabel, storeSituation } from "@/lib/subscription";
 import { SituationBadge } from "@/components/SituationBadge";
 import { AdminActionForm } from "@/components/AdminForms";
-import { blockStore, changePlan, enterAsSupport, grantDays, resetPassword, unblockStore } from "../../actions";
+import { blockStore, changePlan, enterAsSupport, grantDays, resetPassword, setStorePartner, unblockStore } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -32,16 +32,17 @@ export default async function StoreDetail({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-  const [store, plans, month, lastOrder, events, logs] = await Promise.all([
+  const [store, plans, month, lastOrder, events, logs, partners] = await Promise.all([
     db.store.findUnique({
       where: { id },
-      include: { plan: true, users: { orderBy: { createdAt: "asc" } }, _count: { select: { products: true, orders: true } } },
+      include: { plan: true, partner: true, users: { orderBy: { createdAt: "asc" } }, _count: { select: { products: true, orders: true } } },
     }),
     db.plan.findMany({ where: { active: true }, orderBy: { priceCents: "asc" } }),
     db.order.aggregate({ where: { storeId: id, createdAt: { gte: monthAgo }, status: { not: "CANCELED" } }, _count: true, _sum: { totalCents: true } }),
     db.order.findFirst({ where: { storeId: id }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
     db.billingEvent.findMany({ where: { storeId: id }, orderBy: { receivedAt: "desc" }, take: 20 }),
     db.adminLog.findMany({ where: { storeId: id }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.partner.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }], select: { id: true, name: true, code: true, active: true } }),
   ]);
   if (!store) notFound();
   const hidden = { storeId: store.id };
@@ -83,6 +84,10 @@ export default async function StoreDetail({ params }: { params: Promise<{ id: st
           <p><span className="text-stone-500">WhatsApp:</span> {store.whatsapp ?? "—"}</p>
           <p><span className="text-stone-500">Endereço:</span> {store.address ?? "—"}</p>
           <p><span className="text-stone-500">CPF/CNPJ:</span> {store.cpfCnpj ?? "—"}</p>
+          <p>
+            <span className="text-stone-500">Indicada por:</span>{" "}
+            {store.partner ? <Link href={`/admin/parceiros/${store.partner.id}`} className="text-brand-700 hover:underline">{store.partner.name} ({store.partner.code})</Link> : "nenhum parceiro"}
+          </p>
           <p><span className="text-stone-500">Recebendo pedidos:</span> {store.isOpen ? "aberta pelo lojista" : "fechada pelo lojista"}</p>
         </section>
 
@@ -121,6 +126,16 @@ export default async function StoreDetail({ params }: { params: Promise<{ id: st
             </select>
           </div>
           <button className="btn-ghost">Trocar</button>
+        </AdminActionForm>
+        <AdminActionForm action={setStorePartner} hidden={hidden}>
+          <div>
+            <label className="label">Parceiro que indicou</label>
+            <select name="partnerId" defaultValue={store.partnerId ?? ""} className="input w-64">
+              <option value="">Nenhum</option>
+              {partners.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code}){p.active ? "" : " · desativado"}</option>)}
+            </select>
+          </div>
+          <button className="btn-ghost">Salvar</button>
         </AdminActionForm>
       </section>
 

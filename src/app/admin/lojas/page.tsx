@@ -26,7 +26,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Promi
             ],
           }
         : undefined,
-      include: { plan: true, users: { where: { role: "OWNER" }, take: 1 }, _count: { select: { products: true, orders: true } } },
+      include: { plan: true, partner: { select: { code: true } }, users: { where: { role: "OWNER" }, take: 1 }, _count: { select: { products: true, orders: true } } },
       orderBy: { createdAt: "desc" },
     }),
     db.order.groupBy({ by: ["storeId"], _max: { createdAt: true } }),
@@ -70,7 +70,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Promi
               <tr key={s.id} className="hover:bg-stone-50">
                 <td className="px-4 py-3">
                   <Link href={`/admin/lojas/${s.id}`} className="font-medium text-brand-700 hover:underline">{s.name}</Link>
-                  <p className="text-xs text-stone-500">/loja/{s.slug}</p>
+                  <p className="text-xs text-stone-500">/loja/{s.slug}{s.partner ? ` · parceiro ${s.partner.code}` : ""}</p>
                   {s.isDemo && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Demo</span>}
                 </td>
                 <td className="px-4 py-3 text-stone-600">{s.users[0]?.email ?? "—"}</td>

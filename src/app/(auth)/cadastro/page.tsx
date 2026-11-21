@@ -6,16 +6,20 @@ import { BusinessTypeOptions } from "@/components/BusinessTypeOptions";
 import { GoogleButton } from "@/components/GoogleButton";
 import { signup } from "../actions";
 import { TABLE_SIGNUP } from "@/lib/tables";
+import { PartnerCodeField } from "@/components/PartnerCodeField";
+import { normalizePartnerCode } from "@/lib/partner";
 
-export default async function SignupPage({ searchParams }: { searchParams: Promise<{ tipo?: string }> }) {
+export default async function SignupPage({ searchParams }: { searchParams: Promise<{ tipo?: string; parceiro?: string }> }) {
   // As páginas de venda (delivery.webtenda.com.br, loja.webtenda.com.br) mandam ?tipo= já escolhido.
-  const tipo = (await searchParams).tipo;
+  const { tipo, parceiro } = await searchParams;
+  // Link do parceiro (?parceiro=MARIA): o código já vem preenchido e segue junto no cadastro com Google.
+  const partnerCode = normalizePartnerCode(parceiro) || null;
   const chosen: string = tipo === TABLE_SIGNUP.param ? TABLE_SIGNUP.value : (nicheFromParam(tipo) ?? "FOOD");
   return (
     <>
       <h1 className="text-lg font-semibold">Crie sua loja</h1>
       <p className="mb-4 text-sm text-stone-600">{TRIAL_DAYS} dias grátis, sem cartão.</p>
-      <GoogleButton tipo={tipo} label="Criar com Google" />
+      <GoogleButton tipo={tipo} parceiro={partnerCode} label="Criar com Google" />
       <AuthForm
         action={signup}
         submitLabel="Criar minha loja"
@@ -25,6 +29,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
           { name: "email", label: "E-mail", type: "email", autoComplete: "email" },
           { name: "password", label: "Senha (mín. 8 caracteres)", type: "password", autoComplete: "new-password" },
         ]}
+        after={<PartnerCodeField code={partnerCode} />}
       >
         <BusinessTypeOptions chosen={chosen} />
       </AuthForm>

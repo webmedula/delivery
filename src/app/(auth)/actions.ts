@@ -10,6 +10,7 @@ import { BOOKING_STARTER_SERVICES, signupDefaultsFor } from "@/lib/niche";
 import { TABLE_SIGNUP, tableSignupDefaults } from "@/lib/tables";
 import { randomBytes } from "node:crypto";
 import { clearPendingGoogleSignup, readPendingGoogleSignup } from "@/lib/google-auth";
+import { normalizePartnerCode } from "@/lib/partner";
 
 export type FormState = { error?: string } | undefined;
 
@@ -20,6 +21,18 @@ const signupSchema = z.object({
   password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres."),
   businessType: z.enum(["FOOD", "RETAIL", "PREORDER", "BOOKING"]).default("FOOD"),
 });
+
+/**
+ * Código do parceiro digitado no cadastro (ou vindo do link dele). Vazio = sem parceiro.
+ * Código que não existe ou foi desativado dá erro, para o lojista corrigir ou apagar o campo.
+ */
+async function partnerFrom(formData: FormData): Promise<{ partnerId: string | null } | { error: string }> {
+  const code = normalizePartnerCode(String(formData.get("partnerCode") ?? ""));
+  if (!code) return { partnerId: null };
+  const partner = await db.partner.findUnique({ where: { code } });
+  if (!partner || !partner.active) return { error: `Não encontramos o código de parceiro “${code}”. Confira com quem te indicou ou deixe o campo vazio.` };
+  return { partnerId: partner.id };
+}
 
 async function uniqueSlug(base: string) {
   let slug = base || "loja";
@@ -43,8 +56,9 @@ async function createOwnerWithStore(input: {
   googleId?: string;
   businessType: "FOOD" | "RETAIL" | "PREORDER" | "BOOKING";
   withTables: boolean;
+  partnerId: string | null;
 }): Promise<FormState | { userId: string }> {
-  const { storeName, name, email, passwordHash, googleId, businessType, withTables } = input;
+  const { storeName, name, email, passwordHash, googleId, businessType, withTables, partnerId } = input;
   const defaults = withTables ? { ...signupDefaultsFor(businessType), ...tableSignupDefaults() } : signupDefaultsFor(businessType);
   const tables = "tables" in defaults ? defaults.tables : [];
 
@@ -67,6 +81,7 @@ async function createOwnerWithStore(input: {
           planId: plan.id,
           subscriptionStatus: "TRIALING",
           trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+          partnerId,
           // Cada tipo de negócio já nasce configurado (ex.: loja de roupa com retirada e WhatsApp).
           ...defaults.store,
           categories: { create: defaults.categories.map((c, i) => ({ name: c, position: i })) },
@@ -97,8 +112,10 @@ export async function signup(_: FormState, formData: FormData): Promise<FormStat
   const { withTables, businessType } = businessFrom(formData);
   const parsed = signupSchema.safeParse({ ...Object.fromEntries(formData), businessType });
   if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const partner = await partnerFrom(formData);
+  if ("error" in partner) return partner;
   const { password, ...data } = parsed.data;
-  const result = await createOwnerWithStore({ ...data, passwordHash: await hashPassword(password), withTables });
+  const result = await createOwnerWithStore({ ...data, passwordHash: await hashPassword(password), withTables, partnerId: partner.partnerId });
   if (!result || !("userId" in result)) return result;
   await createSession(result.userId);
   redirect("/painel");
@@ -113,6 +130,8 @@ export async function completeGoogleSignup(_: FormState, formData: FormData): Pr
   const { withTables, businessType } = businessFrom(formData);
   const parsed = googleSignupSchema.safeParse({ ...Object.fromEntries(formData), businessType });
   if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const partner = await partnerFrom(formData);
+  if ("error" in partner) return partner;
   // Sem senha: o lojista entra pelo Google. A senha aleatória nunca é mostrada (dá para criar uma pelo admin, se precisar).
   const result = await createOwnerWithStore({
     ...parsed.data,
@@ -120,6 +139,7 @@ export async function completeGoogleSignup(_: FormState, formData: FormData): Pr
     googleId: pending.googleId,
     passwordHash: await hashPassword(randomBytes(32).toString("base64url")),
     withTables,
+    partnerId: partner.partnerId,
   });
   if (!result || !("userId" in result)) return result;
   await clearPendingGoogleSignup();

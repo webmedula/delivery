@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   if (isCalendarState(url.searchParams.get("state"))) {
     redirect(calendarEnabled() ? await finishCalendarConnect(url) : "/painel");
   }
-  const { ok, tipo } = await checkGoogleState(url.searchParams.get("state"));
+  const { ok, tipo, parceiro } = await checkGoogleState(url.searchParams.get("state"));
   const code = url.searchParams.get("code");
   // Cancelou na tela do Google, ou o link expirou: volta sem alarde.
   if (url.searchParams.get("error") === "access_denied") redirect("/entrar");
@@ -39,6 +39,6 @@ export async function GET(request: Request) {
     redirect("/painel");
   }
 
-  await savePendingGoogleSignup(profile, tipo);
+  await savePendingGoogleSignup(profile, tipo, parceiro);
   redirect("/cadastro/google");
 }
