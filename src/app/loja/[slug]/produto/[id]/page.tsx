@@ -16,8 +16,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!store || !product) return { title: "Produto não encontrado" };
   const title = `${product.name} · ${formatBRL(product.priceCents)} · ${store.name}`;
   const description = product.description ?? store.description ?? undefined;
-  const image = absoluteImageUrl(product.imageUrl, await siteUrl());
-  return { title, description, openGraph: { title, description, images: image ? [image] : undefined } };
+  const base = await siteUrl();
+  const image = absoluteImageUrl(product.imageUrl, base);
+  return {
+    title,
+    description,
+    openGraph: { title, description, images: image ? [image] : undefined },
+    alternates: { canonical: `${base}/loja/${store.slug}/produto/${product.id}` },
+    robots: store.isDemo ? { index: false, follow: false } : undefined,
+  };
 }
 
 export default async function ProductPage({ params }: Props) {

@@ -10,8 +10,16 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const store = await getStore((await params).slug);
   if (!store) return { title: "Loja não encontrada" };
   const title = `${store.name} · ${termsFor(store.businessType).catalog}`;
-  const image = absoluteImageUrl(store.products.find((p) => p.imageUrl)?.imageUrl, await siteUrl());
-  return { title, description: store.description ?? undefined, openGraph: { title, description: store.description ?? undefined, images: image ? [image] : undefined } };
+  const base = await siteUrl();
+  const image = absoluteImageUrl(store.products.find((p) => p.imageUrl)?.imageUrl, base);
+  return {
+    title,
+    description: store.description ?? undefined,
+    openGraph: { title, description: store.description ?? undefined, images: image ? [image] : undefined },
+    alternates: { canonical: `${base}/loja/${store.slug}` },
+    // Lojas demo são só para mostrar o sistema: fora do Google.
+    robots: store.isDemo ? { index: false, follow: false } : undefined,
+  };
 }
 
 export default async function StorePage({ params }: { params: Promise<{ slug: string }> }) {
